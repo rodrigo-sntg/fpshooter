@@ -78,24 +78,40 @@ export class Bullet {
     
     /**
      * Verifica colisão com um objeto
-     * @param {THREE.Object3D} object - Objeto para verificar colisão
-     * @returns {boolean} - Verdadeiro se houver colisão
+     * @param {Object} object - Objeto a verificar colisão (deve ter boundingBox)
+     * @returns {boolean} - Verdadeiro se houve colisão
      */
     checkCollision(object) {
-        // Se já colidiu, retorna falso
+        // Verifica se o objeto tem uma bounding box
+        if (!object.boundingBox) return false;
+        
+        // Se já colidiu, não verifica novamente
         if (this.hasCollided) return false;
         
-        // Se o objeto tem uma bounding box, verifica a interseção
-        if (object.boundingBox) {
-            const hasCollision = this.boundingBox.intersectsBox(object.boundingBox);
+        // Atualiza a bounding box do projétil
+        this.boundingBox.setFromObject(this.mesh);
+        
+        // Verifica se as bounding boxes se intersectam
+        const intersects = this.boundingBox.intersectsBox(object.boundingBox);
+        
+        // Aumenta o raio de colisão para sentinelas para facilitar acertos
+        let collision = intersects;
+        if (!intersects && object.isSentinel && this.isPlayerBullet) {
+            // Calcula a distância entre o projétil e o sentinela
+            const distance = this.mesh.position.distanceTo(object.position);
             
-            if (hasCollision) {
-                this.onCollision();
-                return true;
+            // Se estiver dentro de um raio maior (1.5x), considera como acerto
+            if (distance < 1.5) {
+                collision = true;
             }
         }
         
-        return false;
+        // Se houve colisão, processa os efeitos
+        if (collision) {
+            this.onCollision();
+        }
+        
+        return collision;
     }
     
     /**

@@ -376,10 +376,24 @@ class Game {
             if (bulletCollisions.length > 0) {
                 bulletCollisions.forEach(enemy => {
                     if (enemy.health <= 0) {
+                        console.log(`Inimigo eliminado do tipo: ${enemy.type}`);
+                        
                         // Inimigo foi eliminado
                         this.missionManager.updateMissionProgress({
                             enemyType: enemy.type
                         });
+                        
+                        // Se for um sentinela (basic), verifica se estamos na missão 1
+                        if (enemy.type === 'basic' && 
+                            this.missionManager.currentMission && 
+                            this.missionManager.currentMission.id === "level1_mission1") {
+                            
+                            // Força o spawn de um novo sentinela para garantir que há sempre alvos
+                            setTimeout(() => {
+                                const spawnPoint = this.enemyManager.getRandomSpawnPoint();
+                                this.enemyManager.spawnBasic(spawnPoint);
+                            }, 5000); // Depois de 5 segundos
+                        }
                     }
                 });
             }

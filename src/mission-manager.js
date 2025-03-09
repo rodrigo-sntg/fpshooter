@@ -178,6 +178,9 @@ export class MissionManager {
                         // Destaca os sentinelas visualmente para facilitar identificação
                         this.highlightSentinels();
                         
+                        // Força a criação de alguns sentinelas para garantir que a missão possa ser completada
+                        this.forceSpawnSentinels(3);
+                        
                         // Também programa uma verificação periódica para destacar novos sentinelas
                         this.sentinelHighlightInterval = setInterval(() => {
                             this.highlightSentinels();
@@ -322,22 +325,28 @@ export class MissionManager {
     updateKillMission(data) {
         const { enemyType } = data;
         
+        console.log(`Verificando progresso de missão kill. Inimigo eliminado: ${enemyType}, alvo da missão: ${this.currentMission.target}`);
+        
         if (this.currentMission.target === enemyType) {
             this.currentMission.progress++;
+            console.log(`Progresso da missão atualizado: ${this.currentMission.progress}/${this.currentMission.count}`);
             
             // Verifica se a missão foi concluída
             if (this.currentMission.progress >= this.currentMission.count) {
+                console.log("Missão concluída! Todos os alvos foram eliminados.");
                 this.completeMission();
             } else {
                 // Atualiza a UI com o progresso
                 if (this.uiManager) {
                     this.uiManager.showMessage(
-                        `Progresso da missão: ${this.currentMission.progress}/${this.currentMission.count}`,
+                        `Progresso da missão: ${this.currentMission.progress}/${this.currentMission.count} sentinelas eliminados`,
                         2000,
                         'info'
                     );
                 }
             }
+        } else {
+            console.log(`Inimigo eliminado não conta para a missão atual (${enemyType} ≠ ${this.currentMission.target})`);
         }
     }
     
@@ -765,5 +774,29 @@ export class MissionManager {
                 }
             }
         });
+    }
+    
+    /**
+     * Força a criação de alguns sentinelas para garantir que a missão possa ser completada
+     * @param {number} count - Número de sentinelas a serem criados
+     */
+    forceSpawnSentinels(count) {
+        // Verifica se o enemyManager está disponível
+        if (!window.game || !window.game.enemyManager) {
+            console.error("EnemyManager não disponível para criar sentinelas!");
+            return;
+        }
+        
+        // Cria os sentinelas
+        for (let i = 0; i < count; i++) {
+            const position = new THREE.Vector3(
+                Math.random() * 40 - 20, // Posição aleatória entre -20 e 20
+                0,
+                Math.random() * 40 - 20 // Posição aleatória entre -20 e 20
+            );
+            
+            // Spawn do sentinela
+            window.game.enemyManager.spawnBasic(position);
+        }
     }
 } 

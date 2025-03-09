@@ -415,7 +415,19 @@ export class EnemyManager {
                 // Pula inimigos mortos
                 if (enemy.health <= 0) continue;
                 
+                // Logs adicionais para debug de sentinelas
+                const isSentinel = enemy.type === 'basic';
+                if (isSentinel) {
+                    // Exibe a distância entre o projétil e o sentinela para verificar o raio de colisão
+                    const distance = projectile.mesh.position.distanceTo(enemy.position);
+                    if (distance < 2) {
+                        console.log(`Projétil próximo a sentinela. Distância: ${distance.toFixed(2)}`);
+                    }
+                }
+                
                 if (projectile.checkCollision(enemy)) {
+                    console.log(`Colisão detectada com ${isSentinel ? 'sentinela' : 'inimigo tipo ' + enemy.type}!`);
+                    
                     // Causa dano ao inimigo
                     const wasFatal = enemy.takeDamage(projectile.damage);
                     
@@ -436,6 +448,15 @@ export class EnemyManager {
                         
                         this.gameState.addScore(killScore);
                         this.gameState.addKill(enemy.type);
+                        
+                        // Alertar quando um sentinela for eliminado
+                        if (isSentinel && window.game && window.game.uiManager) {
+                            window.game.uiManager.showMessage(
+                                "Sentinela eliminado!", 
+                                1500, 
+                                'success'
+                            );
+                        }
                     }
                     
                     break; // Um projétil só pode atingir um inimigo
@@ -464,5 +485,34 @@ export class EnemyManager {
         });
         
         return collisions;
+    }
+    
+    /**
+     * Cria e adiciona uma sentinela (inimigo básico) à cena na posição específica
+     * @param {THREE.Vector3} position - Posição onde o inimigo será criado
+     * @returns {Enemy} - O inimigo criado ou null em caso de erro
+     */
+    spawnBasic(position) {
+        try {
+            console.log("Forçando spawn de sentinela na posição:", position);
+            
+            // Cria o inimigo do tipo basic (sentinela)
+            const enemy = new Enemy(position, 'basic');
+            
+            // Define a referência da cena para o inimigo
+            if (this.scene) {
+                enemy.setScene(this.scene);
+            }
+            
+            // Adiciona à cena e à lista
+            this.scene.add(enemy.mesh);
+            this.enemies.push(enemy);
+            
+            console.log("Sentinela criada com sucesso!");
+            return enemy;
+        } catch (error) {
+            console.error("Erro ao criar sentinela:", error);
+            return null;
+        }
     }
 } 
