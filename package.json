@@ -1,0 +1,27 @@
+{
+  "name": "starstrike-operacao-zero",
+  "version": "0.1.0",
+  "description": "Um jogo FPS 3D desenvolvido com JavaScript, Three.js e Howler.js",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve .",
+    "dev": "serve . -l 3000",
+    "lint": "eslint src/*.js"
+  },
+  "keywords": [
+    "javascript",
+    "threejs",
+    "howlerjs",
+    "game",
+    "fps"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.47.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.28.0",
+    "serve": "^14.2.0"
+  },
+  "dependencies": {}
+} 

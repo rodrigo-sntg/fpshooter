@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starstrike: Operação Zero</title>
+    <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+    <!-- Container principal do jogo -->
+    <div id="game-container">
+        <!-- Canvas para renderização Three.js -->
+        <canvas id="game-canvas"></canvas>
+        
+        <!-- Interface de usuário (HUD) -->
+        <div id="hud">
+            <div id="health-container">
+                <div id="health-label">SAÚDE</div>
+                <div id="health-bar">
+                    <div id="health-value"></div>
+                </div>
+            </div>
+            
+            <div id="ammo-container">
+                <div id="ammo-count">30 / 90</div>
+            </div>
+            
+            <div id="score-container">
+                <div id="score-label">PONTUAÇÃO</div>
+                <div id="score-value">0</div>
+            </div>
+            
+            <div id="wave-container">
+                <div id="wave-label">ONDA</div>
+                <div id="wave-value">1</div>
+            </div>
+            
+            <div id="mission-container">
+                <div id="mission-label">MISSÃO</div>
+                <div id="mission-text">Aguardando ordens...</div>
+            </div>
+            
+            <div id="crosshair">+</div>
+        </div>
+        
+        <!-- Telas do jogo (menu, pausa, game over) -->
+        <div id="game-screens">
+            <!-- Tela inicial -->
+            <div id="start-screen" class="screen active">
+                <h1>STARSTRIKE: OPERAÇÃO ZERO</h1>
+                <button id="start-button">INICIAR JOGO</button>
+                <button id="settings-button">CONFIGURAÇÕES</button>
+            </div>
+            
+            <!-- Tela de pausa -->
+            <div id="pause-screen" class="screen">
+                <h2>JOGO PAUSADO</h2>
+                <button id="resume-button">CONTINUAR</button>
+                <button id="restart-button">REINICIAR</button>
+                <button id="menu-button">MENU PRINCIPAL</button>
+            </div>
+            
+            <!-- Tela de game over -->
+            <div id="gameover-screen" class="screen">
+                <h2>MISSÃO FALHOU</h2>
+                <div id="final-score">Pontuação: <span id="final-score-value">0</span></div>
+                <button id="retry-button">TENTAR NOVAMENTE</button>
+                <button id="gameover-menu-button">MENU PRINCIPAL</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts do jogo -->
+    <script type="module" src="src/main.js"></script>
+</body>
+</html> 

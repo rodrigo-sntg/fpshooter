@@ -1,0 +1,266 @@
+/* Reset e estilos globais */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Arial', sans-serif;
+    background-color: #000;
+}
+
+/* Container principal do jogo */
+#game-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+/* Canvas do jogo */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* HUD (Heads-Up Display) */
+#hud {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+    color: #fff;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Saúde */
+#health-container {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    width: 200px;
+}
+
+#health-label {
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+#health-bar {
+    height: 20px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#health-value {
+    height: 100%;
+    width: 100%;
+    background-color: #3f6;
+    transition: width 0.3s ease;
+}
+
+/* Munição */
+#ammo-container {
+    position: absolute;
+    bottom: 30px;
+    right: 30px;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* Pontuação */
+#score-container {
+    position: absolute;
+    top: 30px;
+    right: 30px;
+    text-align: right;
+}
+
+#score-label {
+    font-size: 14px;
+}
+
+#score-value {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+/* Onda */
+#wave-container {
+    position: absolute;
+    top: 30px;
+    left: 30px;
+}
+
+#wave-label {
+    font-size: 14px;
+}
+
+#wave-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #00ff00;
+}
+
+/* Mira */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    font-weight: bold;
+    pointer-events: none;
+}
+
+/* Telas do jogo */
+#game-screens {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screen {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 40px;
+    border-radius: 8px;
+    text-align: center;
+    max-width: 500px;
+    width: 90%;
+}
+
+.screen.active {
+    display: flex;
+}
+
+.screen h1 {
+    font-size: 32px;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.screen h2 {
+    font-size: 28px;
+    margin-bottom: 20px;
+}
+
+.screen button {
+    background-color: #3498db;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 12px 24px;
+    margin: 10px 0;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    width: 220px;
+}
+
+.screen button:hover {
+    background-color: #2980b9;
+}
+
+#final-score {
+    font-size: 20px;
+    margin: 20px 0;
+}
+
+/* Estilo para o container de missão */
+#mission-container {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.7);
+    border: 2px solid #2c93ff;
+    border-radius: 5px;
+    padding: 10px 20px;
+    width: 70%;
+    text-align: center;
+    z-index: 100;
+    box-shadow: 0 0 15px rgba(44, 147, 255, 0.5);
+}
+
+#mission-label {
+    font-size: 1rem;
+    font-weight: bold;
+    color: #2c93ff;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    text-shadow: 0 0 5px rgba(44, 147, 255, 0.8);
+}
+
+#mission-text {
+    font-size: 1.2rem;
+    font-weight: normal;
+    color: #ffffff;
+    word-wrap: break-word;
+    line-height: 1.4;
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    #health-container {
+        width: 150px;
+        bottom: 20px;
+        left: 20px;
+    }
+    
+    #ammo-container {
+        bottom: 20px;
+        right: 20px;
+        font-size: 20px;
+    }
+    
+    #score-value {
+        font-size: 22px;
+    }
+    
+    #wave-value {
+        font-size: 20px;
+    }
+    
+    .screen h1 {
+        font-size: 24px;
+    }
+    
+    .screen h2 {
+        font-size: 22px;
+    }
+}
+
+/* Estilo para mensagens de tutorial */
+.tutorial-message {
+    background-color: rgba(0, 50, 100, 0.8) !important;
+    border: 2px solid #00a0ff !important;
+    font-size: 1.1em !important;
+    padding: 15px 20px !important;
+    max-width: 80% !important;
+    box-shadow: 0 0 20px rgba(0, 160, 255, 0.6) !important;
+} 
