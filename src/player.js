@@ -123,25 +123,27 @@ export class Player {
      * @param {number} deltaTime - Tempo desde o último frame em segundos
      */
     update(deltaTime) {
-        // Não atualiza se a saúde for zero ou negativa
-        if (this.health <= 0) return;
+        // Atualiza baseado no estado atual
+        if (this.health <= 0) {
+            return; // Jogador morto, não atualiza
+        }
         
-        console.log("Atualizando jogador, deltaTime:", deltaTime);
-        
-        // Processa a rotação da câmera
+        // Atualiza rotação baseada no mouse
         this.updateRotation(deltaTime);
         
-        // Processa o movimento do jogador
+        // Atualiza movimentação baseada no teclado
         this.updateMovement(deltaTime);
         
-        // Atualiza a arma e disparo
+        // Atualiza estado da arma (recarga, tiro, etc)
         this.updateWeapon(deltaTime);
         
-        // Atualiza os projéteis
+        // Atualiza projéteis (balas)
         this.updateBullets(deltaTime);
         
-        // Anima o modelo da arma durante o movimento
-        this.animateWeapon(deltaTime);
+        // Debugging: apenas log esporádico da posição (a cada ~5 segundos)
+        if (Math.random() < 0.001) { // ~0.1% chance por frame
+            console.log(`Posição do jogador: (${this.position.x.toFixed(2)}, ${this.position.y.toFixed(2)}, ${this.position.z.toFixed(2)})`);
+        }
     }
     
     /**
@@ -170,7 +172,12 @@ export class Player {
     updateMovement(deltaTime) {
         // Obtém o vetor de movimento das teclas pressionadas
         const movement = this.inputManager.getMovementVector();
-        console.log("Vetor de movimento:", movement);
+        
+        // Log esporádico para depuração (apenas 0.1% das vezes)
+        const shouldLog = Math.random() < 0.001;
+        if (shouldLog) {
+            console.log("Vetor de movimento:", movement);
+        }
         
         // Determina a velocidade baseada em se está correndo ou não
         const speed = this.inputManager.isRunning() ?
@@ -212,13 +219,17 @@ export class Player {
         
         // Atualiza a posição
         this.position.add(this.velocity);
-        console.log("Nova posição:", this.position);
+        
+        // Log esporádico da nova posição
+        if (shouldLog) {
+            console.log("Nova posição:", this.position);
+        }
         
         // Atualiza a posição da câmera
         this.camera.position.x = this.position.x;
         this.camera.position.z = this.position.z;
         
-        // Atualiza o boundingBox para colisões
+        // Atualiza o bounding box para colisões
         this.updateBoundingBox();
     }
     

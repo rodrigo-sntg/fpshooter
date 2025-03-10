@@ -41,7 +41,8 @@ export class UIManager {
             backFromMultiplayerButton: document.getElementById('back-from-multiplayer-button'),
             connectionStatus: document.getElementById('connection-status'),
             playersList: document.getElementById('players-list').querySelector('.players-list'),
-            multiplayerButton: document.getElementById('multiplayer-button')
+            multiplayerButton: document.getElementById('multiplayer-button'),
+            playersCount: document.getElementById('players-count')
         };
         
         // Flag para dispositivos móveis
@@ -374,6 +375,18 @@ export class UIManager {
         const hud = document.getElementById('hud');
         if (hud) {
             hud.style.display = visible ? 'block' : 'none';
+            
+            // Garante que o HUD não interfira com os controles do jogo
+            // Permite que eventos de mouse passem através do HUD para o canvas
+            hud.style.pointerEvents = "none";
+            
+            // Configura cada elemento interativo dentro do HUD para capturar eventos
+            const interactiveElements = hud.querySelectorAll('button, input, select, a');
+            interactiveElements.forEach(element => {
+                element.style.pointerEvents = "auto";
+            });
+            
+            console.log(`HUD ${visible ? 'visível' : 'oculto'} com pointerEvents configurados`);
         }
     }
     
@@ -414,23 +427,41 @@ export class UIManager {
             }
         }
         
-        // Gerencia visibilidade do HUD baseado na tela
-        // HUD deve estar visível apenas durante o jogo ativo
-        const shouldShowHUD = !screenId || screenId === null;
+        // Gerencia visibilidade do HUD baseado na tela e estado do jogo
+        // O HUD deve estar visível apenas durante o jogo ativo (playing)
+        const isPlaying = window.game && window.game.gameState && window.game.gameState.state === 'playing';
+        const shouldShowHUD = isPlaying && (!screenId || screenId === null);
+        
+        // Exibe o HUD se estiver jogando e não houver tela bloqueante ativa
         this.setHUDVisibility(shouldShowHUD);
         
-        // Garante que a tela multiplayer fique acima do HUD
+        // Configurações específicas para cada tela
         if (screenId === 'multiplayerScreen') {
-            // Força HUD a ficar oculto quando no menu multiplayer
-            this.setHUDVisibility(false);
-            
             // Aumenta o z-index da tela multiplayer para garantir que fique acima de tudo
             const multiplayerScreen = document.getElementById('multiplayerScreen');
             if (multiplayerScreen) {
                 multiplayerScreen.style.zIndex = "1000";
+                // Garante que não interfira com os controles do canvas
+                multiplayerScreen.style.pointerEvents = "auto";
                 console.log("Z-index da tela multiplayer ajustado para 1000");
+            }
+        } else if (screenId === 'startScreen') {
+            // Ajusta Z-index mais baixo para o menu inicial
+            const startScreen = document.getElementById('startScreen');
+            if (startScreen) {
+                startScreen.style.zIndex = "500";
+            }
+        }
+        
+        // Atualiza o game-container para ajudar com a captura de inputs
+        const gameContainer = document.getElementById('game-container');
+        if (gameContainer) {
+            if (isPlaying && !screenId) {
+                // Se estiver jogando sem telas abertas, permite interação com o canvas
+                gameContainer.style.pointerEvents = "auto";
             } else {
-                console.error("Tela multiplayer não encontrada para ajustar z-index");
+                // Se tiver telas abertas ou não estiver jogando, bloqueia interação
+                gameContainer.style.pointerEvents = "none";
             }
         }
     }
@@ -589,51 +620,80 @@ export class UIManager {
      * Inicia conexão com servidor multiplayer
      */
     handleConnectToServer() {
-        if (!window.game) {
-            console.error("UIManager: Instância do jogo não disponível");
-            return;
-        }
-        
-        // Obtém URL do servidor e nome do jogador
-        const serverUrl = this.elements.serverUrl.value.trim();
-        const playerName = this.elements.playerName.value.trim() || "Jogador" + Math.floor(Math.random() * 1000);
-        
-        if (!serverUrl) {
-            this.showMessage("Informe o endereço do servidor", 3000, "error");
-            return;
-        }
-        
-        // Atualiza interface
-        this.updateConnectionStatus("Conectando...");
-        this.elements.connectButton.disabled = true;
-        
-        // Inicia modo multiplayer se ainda não iniciado
-        if (!window.game.multiplayerReady) {
-            window.game.startMultiplayerMode();
-        }
-        
-        // Tenta conectar
-        window.game.connectToMultiplayerServer(serverUrl)
-            .then(() => {
-                // Sucesso na conexão
+        try {
+            if (!window.game) {
+                console.error("UIManager: Instância do jogo não disponível");
+                return;
+            }
+            
+            // Obtém URL do servidor e nome do jogador
+            const serverUrl = this.elements.serverUrl.value.trim();
+            const playerName = this.elements.playerName.value.trim() || "Jogador" + Math.floor(Math.random() * 1000);
+            
+            if (!serverUrl) {
+                this.showMessage("Informe o endereço do servidor", 3000, "error");
+                return;
+            }
+            
+            // Verificar se já está conectado a este servidor
+            if (window.game.networkManager && 
+                window.game.networkManager.connected && 
+                window.game.networkManager.serverUrl === serverUrl) {
+                
+                this.showMessage("Já está conectado a este servidor", 3000, "info");
                 this.updateConnectionStatus("Conectado");
                 this.elements.connectButton.disabled = true;
                 this.elements.disconnectButton.disabled = false;
                 
                 // Volta para o menu principal após conectar
                 this.showScreen('startScreen');
-                
-                // Inicia o jogo se já não estiver jogando
-                if (window.game.gameState.state !== 'playing') {
-                    window.game.startGame();
-                }
-            })
-            .catch(error => {
-                // Falha na conexão
-                this.updateConnectionStatus("Erro: " + error);
-                this.elements.connectButton.disabled = false;
-                this.showMessage("Falha ao conectar: " + error, 5000, "error");
-            });
+                return;
+            }
+            
+            // Atualiza interface
+            this.updateConnectionStatus("Conectando...");
+            this.elements.connectButton.disabled = true;
+            
+            // Se já estiver conectado a outro servidor, desconectar primeiro
+            if (window.game.networkManager && window.game.networkManager.connected) {
+                window.game.disconnectFromMultiplayerServer();
+            }
+            
+            // Inicia modo multiplayer se ainda não iniciado
+            if (!window.game.multiplayerReady) {
+                window.game.startMultiplayerMode();
+            }
+            
+            // Registra o nome do jogador na UI
+            console.log(`Tentando conectar como "${playerName}" ao servidor ${serverUrl}`);
+            
+            // Tenta conectar passando o nome do jogador
+            window.game.connectToMultiplayerServer(serverUrl, playerName)
+                .then(() => {
+                    // Sucesso na conexão
+                    this.updateConnectionStatus("Conectado");
+                    this.elements.connectButton.disabled = true;
+                    this.elements.disconnectButton.disabled = false;
+                    
+                    // Volta para o menu principal após conectar
+                    this.showScreen('startScreen');
+                    
+                    // Inicia o jogo se já não estiver jogando
+                    if (window.game.gameState.state !== 'playing') {
+                        window.game.startGame();
+                    }
+                })
+                .catch(error => {
+                    // Falha na conexão
+                    this.updateConnectionStatus("Erro: " + error);
+                    this.elements.connectButton.disabled = false;
+                    this.showMessage("Falha ao conectar: " + error, 5000, "error");
+                });
+        } catch (error) {
+            console.error("Erro ao tentar conectar ao servidor:", error);
+            this.showMessage("Erro interno: " + error.message, 5000, "error");
+            this.elements.connectButton.disabled = false;
+        }
     }
     
     /**
@@ -673,6 +733,18 @@ export class UIManager {
     updatePlayersList(players) {
         if (!this.elements.playersList) return;
         
+        // Verifica se a lista está vazia
+        if (!players || players.length === 0) {
+            this.clearPlayersList();
+            
+            // Adiciona mensagem de "nenhum jogador conectado"
+            const li = document.createElement('li');
+            li.textContent = "Nenhum jogador conectado";
+            li.classList.add('no-players');
+            this.elements.playersList.appendChild(li);
+            return;
+        }
+        
         // Limpa lista
         this.clearPlayersList();
         
@@ -680,10 +752,24 @@ export class UIManager {
         players.forEach(player => {
             const li = document.createElement('li');
             
+            // Adiciona classe para jogador local
+            if (player.isLocal) {
+                li.classList.add('local-player');
+            }
+            
+            // Cria ícone de status
+            const statusIcon = document.createElement('span');
+            statusIcon.classList.add('player-status');
+            statusIcon.textContent = player.isLocal ? "👤" : "👥";
+            li.appendChild(statusIcon);
+            
+            // Nome do jogador
             const nameSpan = document.createElement('span');
             nameSpan.textContent = player.name || player.id;
+            nameSpan.classList.add('player-name');
             li.appendChild(nameSpan);
             
+            // Latência (ping)
             if (player.latency !== undefined) {
                 const pingSpan = document.createElement('span');
                 pingSpan.textContent = player.latency + "ms";
@@ -692,6 +778,8 @@ export class UIManager {
                 // Destaca latência alta
                 if (player.latency > 150) {
                     pingSpan.classList.add('high-ping');
+                } else if (player.latency < 50) {
+                    pingSpan.classList.add('low-ping');
                 }
                 
                 li.appendChild(pingSpan);
@@ -699,6 +787,14 @@ export class UIManager {
             
             this.elements.playersList.appendChild(li);
         });
+        
+        // Atualiza contador de jogadores
+        if (this.elements.playersCount) {
+            this.elements.playersCount.textContent = players.length;
+        }
+        
+        // Log para depuração
+        console.log(`Lista de jogadores atualizada: ${players.length} jogadores`);
     }
     
     /**
@@ -707,6 +803,55 @@ export class UIManager {
     clearPlayersList() {
         if (this.elements.playersList) {
             this.elements.playersList.innerHTML = '';
+        }
+    }
+    
+    /**
+     * Atualiza o status da conexão de rede na interface
+     * @param {boolean} connected - Se está conectado ao servidor
+     * @param {number} latency - Latência da conexão em ms (opcional)
+     */
+    updateNetworkStatus(connected, latency = 0) {
+        try {
+            // Procura elementos de status de rede na tela multiplayer
+            const connectionStatus = document.getElementById('connection-status');
+            const latencyDisplay = document.getElementById('latency-display');
+            
+            // Se os elementos não existirem, não faz nada
+            if (!connectionStatus && !latencyDisplay) {
+                return;
+            }
+            
+            // Atualiza o indicador de status
+            if (connectionStatus) {
+                connectionStatus.textContent = connected ? 'Conectado' : 'Desconectado';
+                connectionStatus.className = connected ? 'status-connected' : 'status-disconnected';
+            }
+            
+            // Atualiza a latência (ping)
+            if (latencyDisplay && connected) {
+                latencyDisplay.textContent = `Ping: ${Math.round(latency)}ms`;
+                
+                // Adiciona classes de acordo com a qualidade da conexão
+                latencyDisplay.className = 'latency';
+                if (latency < 50) {
+                    latencyDisplay.classList.add('latency-good');
+                } else if (latency < 100) {
+                    latencyDisplay.classList.add('latency-ok');
+                } else {
+                    latencyDisplay.classList.add('latency-bad');
+                }
+                
+                // Mostra o elemento se estiver conectado
+                latencyDisplay.style.display = 'block';
+            } else if (latencyDisplay) {
+                // Esconde o elemento se estiver desconectado
+                latencyDisplay.style.display = 'none';
+            }
+            
+            console.log(`UI: Status de rede atualizado - Conectado: ${connected}, Latência: ${latency}ms`);
+        } catch (error) {
+            console.error("Erro ao atualizar status de rede na UI:", error);
         }
     }
 } 
