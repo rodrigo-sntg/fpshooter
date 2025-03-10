@@ -26,6 +26,17 @@ export class InputManager {
             y: 0
         };
         
+        // Estado do joystick (para dispositivos móveis)
+        this.joystick = {
+            movement: { x: 0, z: 0 },
+            rotation: { x: 0, y: 0 },
+            shooting: false,
+            reloading: false
+        };
+        
+        // Detecta se é um dispositivo móvel
+        this.isMobileDevice = this.detectMobile();
+        
         // Registra os eventos de teclado
         document.addEventListener('keydown', this.onKeyDown.bind(this));
         document.addEventListener('keyup', this.onKeyUp.bind(this));
@@ -44,6 +55,15 @@ export class InputManager {
         
         // Flag para verificar se o ponteiro está bloqueado
         this.isPointerLocked = false;
+    }
+    
+    /**
+     * Detecta se é um dispositivo móvel
+     * @returns {boolean} - Verdadeiro se for dispositivo móvel
+     */
+    detectMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+               (window.matchMedia && window.matchMedia("(max-width: 767px)").matches);
     }
     
     /**
@@ -154,10 +174,52 @@ export class InputManager {
     }
     
     /**
-     * Obtém o vetor de movimento horizontal baseado nas teclas pressionadas
+     * Define o vetor de movimento para controles virtuais móveis
+     * @param {Object} vector - Vetor com componentes x e z
+     */
+    setMovementVector(vector) {
+        this.joystick.movement = vector;
+    }
+    
+    /**
+     * Define a rotação da câmera para controles virtuais móveis
+     * @param {Object} rotation - Rotação com componentes x e y
+     */
+    setCameraRotation(rotation) {
+        this.joystick.rotation = rotation;
+        
+        // Acumula a rotação para simular o comportamento do mouse
+        this.mouseAccumulatedMovement.x += rotation.x * 5; // Ajusta a sensibilidade
+        this.mouseAccumulatedMovement.y += rotation.y * 5;
+    }
+    
+    /**
+     * Define o estado de disparo para controles virtuais móveis
+     * @param {boolean} state - Estado de disparo (true/false)
+     */
+    setShootingState(state) {
+        this.joystick.shooting = state;
+    }
+    
+    /**
+     * Define o estado de recarga para controles virtuais móveis
+     * @param {boolean} state - Estado de recarga (true/false)
+     */
+    setReloadingState(state) {
+        this.joystick.reloading = state;
+    }
+    
+    /**
+     * Obtém o vetor de movimento horizontal baseado nas teclas pressionadas ou joystick virtual
      * @returns {Object} - Objeto com componentes x e z do movimento
      */
     getMovementVector() {
+        // Se for um dispositivo móvel e o joystick estiver sendo usado, retorna o vetor do joystick
+        if (this.isMobileDevice && (this.joystick.movement.x !== 0 || this.joystick.movement.z !== 0)) {
+            return this.joystick.movement;
+        }
+        
+        // Caso contrário, usa o teclado
         // Inicializa o vetor de movimento
         const movement = { x: 0, z: 0 };
         
@@ -205,22 +267,22 @@ export class InputManager {
     
     /**
      * Verifica se o jogador está tentando recarregar
-     * @returns {boolean} - Verdadeiro se a tecla de recarga estiver pressionada
+     * @returns {boolean} - Verdadeiro se a tecla de recarga estiver pressionada ou o botão virtual correspondente
      */
     isReloading() {
-        return this.isKeyPressed('KeyR');
+        return this.isKeyPressed('KeyR') || this.joystick.reloading;
     }
     
     /**
      * Verifica se o jogador está tentando disparar
-     * @returns {boolean} - Verdadeiro se o botão de disparo estiver pressionado
+     * @returns {boolean} - Verdadeiro se o botão de disparo estiver pressionado (mouse ou toque)
      */
     isShooting() {
-        return this.mouse.buttons.left;
+        return this.mouse.buttons.left || this.joystick.shooting;
     }
     
     /**
-     * Obtém a rotação da câmera baseada no movimento do mouse
+     * Obtém a rotação da câmera baseada no movimento do mouse ou joystick
      * @returns {Object} - Rotação em x e y
      */
     getCameraRotation() {

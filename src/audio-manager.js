@@ -1,32 +1,43 @@
 /**
- * Gerenciador de áudio responsável por carregar, reproduzir e controlar som
- * Utiliza a biblioteca Howler.js para manipular áudio de forma eficiente
+ * Gerenciador de áudio responsável por todos os sons e músicas do jogo
+ * Utiliza Howler.js para manipulação avançada de áudio web
  */
 import { Howl, Howler } from 'https://cdn.jsdelivr.net/npm/howler@2.2.3/+esm';
 import { AUDIO } from './config.js';
 
 export class AudioManager {
     constructor() {
-        // Configura o volume global
-        Howler.volume(AUDIO.MUSIC_VOLUME);
-        
-        // Dicionário de sons
-        this.sounds = {};
-        
-        // Referência para a música de fundo atual
-        this.currentMusic = null;
-        
-        // Carrega os sons
-        this.loadSounds();
-        
-        // Testa se o Howler está funcionando
-        if (Howler) {
-            console.log("Howler inicializado com sucesso. Volume global:", Howler.volume());
+        // Verifica se o Howler está disponível
+        if (typeof Howl !== 'undefined') {
+            // Configurações globais
+            Howler.volume(AUDIO.MUSIC_VOLUME);
+            
+            // Sons do jogo
+            this.sounds = {};
+            
+            // Controle de desempenho de áudio
+            this.soundCooldowns = {}; // Controla a taxa de reprodução para cada tipo de som
+            this.activeSoundCount = 0; // Monitora o número de sons ativos
+            this.maxSimultaneousSounds = 8; // Limita o número máximo de sons simultâneos
+            this.lastPlayed = {}; // Armazena o timestamp da última reprodução de cada som
+            
+            // Tempos mínimos entre reproduções do mesmo som (em ms)
+            this.cooldownTimes = {
+                shoot: 50,      // Disparo pode ser frequente
+                reload: 300,    // Recarga menos frequente
+                explosion: 200, // Explosões com intervalo razoável
+                empty: 300,     // Som de arma vazia
+                hit: 150,       // Sons de impacto
+                hurt: 200       // Sons de dano ao jogador
+            };
+            
+            // Carrega todos os sons
+            this.loadSounds();
+            
+            console.log("AudioManager inicializado com otimizações de desempenho");
         } else {
             console.error("Howler não está disponível!");
         }
-        
-        console.log("AudioManager inicializado");
     }
     
     /**
@@ -34,145 +45,214 @@ export class AudioManager {
      */
     loadSounds() {
         try {
-            // Efeitos sonoros
+            // Configuração otimizada para efeitos sonoros
+            const commonOptions = {
+                preload: true,      // Pré-carrega os sons
+                volume: AUDIO.SFX_VOLUME,
+                pool: 3            // Limita o número de instâncias simultâneas
+            };
+            
+            // Efeitos sonoros com configurações otimizadas
             this.sounds = {
                 // Sons de armas
                 shoot: new Howl({
                     src: ['./assets/sounds/shoot.wav'],
-                    volume: AUDIO.SFX_VOLUME,
-                    rate: 1.0,
-                    pool: 5 // Permite múltiplas reproduções simultâneas
+                    ...commonOptions,
+                    volume: AUDIO.SFX_VOLUME * 0.8 // Volume um pouco reduzido
                 }),
                 
-                // Som de arma vazia (temporário, usando o mesmo som)
+                // Som de arma vazia
                 empty: new Howl({
-                    src: ['./assets/sounds/empty.wav'], // Usando arquivo dedicado
-                    volume: AUDIO.SFX_VOLUME * 0.3,
-                    rate: 0.7 // Mais lento para diferenciar
+                    src: ['./assets/sounds/empty.wav'],
+                    ...commonOptions,
+                    volume: AUDIO.SFX_VOLUME * 0.3
                 }),
                 
                 // Som de explosão
                 explosion: new Howl({
                     src: ['./assets/sounds/explosion.wav'],
-                    volume: AUDIO.SFX_VOLUME
+                    ...commonOptions
                 }),
                 
                 // Som de recarga
                 reload: new Howl({
                     src: ['./assets/sounds/reload.wav'],
-                    volume: AUDIO.SFX_VOLUME
+                    ...commonOptions
                 })
             };
             
-            console.log("Sons carregados com sucesso:", Object.keys(this.sounds));
+            const soundsList = Object.keys(this.sounds);
+            console.log("Sons carregados:", soundsList.length);
         } catch (error) {
             console.error("Erro ao carregar sons:", error);
         }
     }
     
     /**
-     * Reproduz um efeito sonoro
-     * @param {string} soundId - Identificador do som a ser reproduzido
-     * @param {number} volume - Volume (0-1) para este som específico (opcional)
-     * @param {number} rate - Taxa de reprodução (1.0 é normal, valores maiores mais rápido) (opcional)
-     * @returns {number} - ID da reprodução do som
+     * Solicita o desbloqueio do contexto de áudio após uma interação do usuário
+     * Deve ser chamado após um clique ou toque
+     */
+    unlockAudio() {
+        try {
+            // Tenta resumir o contexto de áudio
+            if (Howler.ctx && Howler.ctx.state !== 'running') {
+                Howler.ctx.resume();
+                console.log("Contexto de áudio desbloqueado!");
+            }
+            
+            // Reproduz um som silencioso para desbloquear o áudio em alguns navegadores
+            const unlockSound = new Howl({
+                src: ['data:audio/mp3;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV'],
+                volume: 0.001, // Volume praticamente inaudível
+                autoplay: true,
+                onend: function() {
+                    // Não fazemos nada aqui, apenas para inicializar o áudio
+                }
+            });
+        } catch (error) {
+            console.error("Erro ao desbloquear áudio:", error);
+        }
+    }
+    
+    /**
+     * Reproduz um som com limitação de frequência e quantidade
+     * @param {string} soundId - Identificador do som
+     * @param {number} volume - Volume opcional (0-1)
+     * @param {number} rate - Taxa de reprodução
+     * @returns {number|null} - ID da reprodução ou null se não foi possível reproduzir
      */
     play(soundId, volume, rate) {
+        // Verifica se o som existe
         if (!this.sounds[soundId]) {
-            console.warn(`Som não encontrado: ${soundId}. Sons disponíveis:`, Object.keys(this.sounds));
-            return -1;
+            return null;
         }
         
-        try {
-            const sound = this.sounds[soundId];
-            
-            // Ajusta volume se especificado
-            if (volume !== undefined) {
-                sound.volume(volume);
+        // Otimização: limita a quantidade de sons simultâneos
+        if (this.activeSoundCount >= this.maxSimultaneousSounds) {
+            // Se já temos muitos sons, só reproduz sons importantes
+            if (!['shoot', 'hurt', 'explosion'].includes(soundId)) {
+                return null;
             }
-            
-            // Ajusta rate se especificado
-            if (rate !== undefined) {
-                sound.rate(rate);
-            }
-            
-            // Exibe informações do som antes de reproduzir
-            console.log(`Reproduzindo som "${soundId}":`, {
-                volume: sound.volume(),
-                rate: sound.rate(),
-                src: sound._src
-            });
-            
-            // Reproduz o som e retorna o ID da reprodução
-            const id = sound.play();
-            console.log(`Som "${soundId}" reproduzido com ID: ${id}`);
-            return id;
-        } catch (error) {
-            console.error(`Erro ao reproduzir som "${soundId}":`, error);
-            return -1;
         }
+        
+        // Otimização: Verifica cooldown para evitar muitos sons do mesmo tipo
+        const now = Date.now();
+        const lastPlayed = this.lastPlayed[soundId] || 0;
+        const cooldown = this.cooldownTimes[soundId] || 100;
+        
+        if (now - lastPlayed < cooldown) {
+            return null; // Ainda em cooldown, ignora
+        }
+        
+        // Atualiza o timestamp da última reprodução
+        this.lastPlayed[soundId] = now;
+        
+        // Incrementa contador de sons ativos
+        this.activeSoundCount++;
+        
+        // Configura opções
+        if (volume !== undefined) {
+            this.sounds[soundId].volume(volume);
+        }
+        
+        if (rate !== undefined) {
+            this.sounds[soundId].rate(rate);
+        }
+        
+        // Reproduz o som
+        const id = this.sounds[soundId].play();
+        
+        // Registra o callback para quando o som terminar
+        this.sounds[soundId].once('end', () => {
+            this.activeSoundCount = Math.max(0, this.activeSoundCount - 1);
+        }, id);
+        
+        return id;
     }
     
     /**
-     * Reproduz um som 3D baseado na posição relativa ao jogador
-     * @param {string} soundId - Identificador do som a ser reproduzido
-     * @param {THREE.Vector3} position - Posição 3D da origem do som
-     * @param {THREE.Vector3} playerPosition - Posição 3D do jogador
-     * @param {number} maxDistance - Distância máxima para ouvir o som
-     * @returns {number} - ID da reprodução do som
+     * Reproduz um som 3D com atenuação baseada na distância
+     * @param {string} soundId - Identificador do som
+     * @param {THREE.Vector3} position - Posição da fonte sonora
+     * @param {THREE.Vector3} playerPosition - Posição do jogador
+     * @param {number} maxDistance - Distância máxima audível
+     * @returns {number|null} - ID da reprodução ou null se não reproduzido
      */
     play3D(soundId, position, playerPosition, maxDistance = AUDIO.MAX_DISTANCE) {
-        const sound = this.sounds[soundId];
-        
-        if (!sound) {
-            console.warn(`Som não encontrado: ${soundId}`);
-            return -1;
+        // Verifica se o som existe
+        if (!this.sounds[soundId]) {
+            return null;
         }
         
-        // Calcula distância entre jogador e origem do som
+        // Otimização: só calcula distância se o som existe
+        // Calcula a distância ao quadrado (mais eficiente que raiz quadrada)
         const dx = playerPosition.x - position.x;
-        const dy = playerPosition.y - position.y;
         const dz = playerPosition.z - position.z;
-        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const distanceSquared = dx * dx + dz * dz;
+        const maxDistanceSquared = maxDistance * maxDistance;
         
-        // Se a distância for maior que a máxima, não reproduz o som
-        if (distance > maxDistance) {
-            return -1;
+        // Se estiver além da distância máxima, não reproduz
+        if (distanceSquared > maxDistanceSquared) {
+            return null;
         }
         
-        // Calcula volume baseado na distância (atenuação linear)
-        const volume = Math.max(0, AUDIO.SFX_VOLUME * (1 - distance / maxDistance));
+        // Aplica o mesmo controle de taxa que o método play normal
+        const now = Date.now();
+        const lastPlayed = this.lastPlayed[soundId] || 0;
+        const cooldown = this.cooldownTimes[soundId] || 100;
         
-        // Calcula a estereofonia (pan) baseado na posição horizontal relativa
-        const pan = Math.max(-1, Math.min(1, dx / maxDistance * 2));
+        if (now - lastPlayed < cooldown) {
+            return null;
+        }
         
-        // Configura as propriedades espaciais
-        sound.volume(volume);
-        sound.stereo(pan);
+        // Limite de sons simultâneos
+        if (this.activeSoundCount >= this.maxSimultaneousSounds) {
+            if (!['explosion', 'hurt'].includes(soundId)) {
+                return null;
+            }
+        }
         
-        // Reproduz o som e retorna o ID da reprodução
-        return sound.play();
+        // Atualiza timestamp
+        this.lastPlayed[soundId] = now;
+        
+        // Calcula volume baseado na distância (mais eficiente)
+        const distance = Math.sqrt(distanceSquared);
+        const volume = Math.max(0, 1 - (distance / maxDistance)) * AUDIO.SFX_VOLUME;
+        
+        // Se o volume for muito baixo, nem reproduz
+        if (volume < 0.05) {
+            return null;
+        }
+        
+        // Incrementa contador
+        this.activeSoundCount++;
+        
+        // Reproduz com o volume calculado
+        const id = this.sounds[soundId].play();
+        this.sounds[soundId].volume(volume, id);
+        
+        // Registra callback quando terminar
+        this.sounds[soundId].once('end', () => {
+            this.activeSoundCount = Math.max(0, this.activeSoundCount - 1);
+        }, id);
+        
+        return id;
     }
     
     /**
-     * Para a reprodução de um som
-     * @param {string} soundId - Identificador do som a ser parado
+     * Para um som específico
+     * @param {string} soundId - Identificador do som
      * @param {number} id - ID da reprodução específica (opcional)
      */
     stop(soundId, id) {
-        const sound = this.sounds[soundId];
-        
-        if (!sound) {
-            console.warn(`Som não encontrado para parar: ${soundId}`);
-            return;
-        }
-        
-        if (id !== undefined) {
-            // Para uma reprodução específica
-            sound.stop(id);
-        } else {
-            // Para todas as reproduções deste som
-            sound.stop();
+        if (this.sounds[soundId]) {
+            if (id !== undefined) {
+                this.sounds[soundId].stop(id);
+                this.activeSoundCount = Math.max(0, this.activeSoundCount - 1);
+            } else {
+                this.sounds[soundId].stop();
+                // Não podemos determinar quantos sons paramos, então não atualizamos activeSounds
+            }
         }
     }
     

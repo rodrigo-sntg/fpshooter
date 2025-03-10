@@ -474,47 +474,69 @@ export class SceneManager {
     }
     
     /**
-     * Atualiza a cena (chamado a cada frame)
-     * @param {number} deltaTime - Tempo decorrido desde o último frame em segundos
+     * Atualiza todos os elementos da cena (chamado a cada frame)
+     * @param {number} deltaTime - Tempo desde o último frame em segundos
      */
     update(deltaTime) {
         // Contador para limitar atualizações
         if (!this.updateCounter) this.updateCounter = 0;
         this.updateCounter++;
         
-        // Só atualiza a cada X frames
-        if (this.updateCounter % 3 !== 0) return;
+        // Otimização: agora só atualiza a cada 5 frames para melhorar performance ainda mais
+        if (this.updateCounter % 5 !== 0) return;
+        
+        // Tempo atual, calculado apenas uma vez por atualização
+        const now = Date.now() * 0.001;
         
         // Animações de objetos na cena
         if (this.obstacles && this.obstacles.length > 0) {
-            // Atualiza apenas uma porção dos obstáculos por frame
-            const startIdx = (this.updateCounter / 3) % this.obstacles.length;
-            const endIdx = Math.min(startIdx + 2, this.obstacles.length);
+            // Otimização: atualiza apenas 3 objetos por vez no máximo
+            const startIdx = Math.floor(this.updateCounter / 5) % this.obstacles.length;
+            const maxUpdateCount = Math.min(3, this.obstacles.length);
             
-            for (let i = startIdx; i < endIdx; i++) {
-                const obstacle = this.obstacles[i];
-                // Exemplo: rotação lenta dos obstáculos
-                obstacle.rotation.y += 0.01 * deltaTime;
+            for (let i = 0; i < maxUpdateCount; i++) {
+                const idx = (startIdx + i) % this.obstacles.length;
+                const obstacle = this.obstacles[idx];
                 
-                // Exemplo: movimento suave para cima e para baixo para alguns obstáculos
-                if (i % 2 === 0) {
-                    obstacle.position.y = 1 + Math.sin(Date.now() * 0.001 + i) * 0.2;
+                // Otimização: só anima objetos próximos à câmera
+                if (this.camera) {
+                    const distanceToCamera = obstacle.position.distanceTo(this.camera.position);
+                    
+                    // Se estiver longe demais, não perde tempo animando
+                    if (distanceToCamera > 30) continue;
+                    
+                    // Animação reduzida para objetos distantes
+                    const animationScale = distanceToCamera < 15 ? 1 : 0.5;
+                    
+                    // Exemplo: rotação lenta dos obstáculos
+                    obstacle.rotation.y += 0.01 * deltaTime * animationScale;
+                    
+                    // Exemplo: movimento suave para cima e para baixo para alguns obstáculos
+                    if (idx % 2 === 0) {
+                        obstacle.position.y = 1 + Math.sin(now + idx) * 0.2 * animationScale;
+                    }
                 }
             }
         }
         
-        // Animação de cores para as luzes de ponto
+        // Animação de cores para as luzes de ponto - limite a apenas uma luz por atualização
         if (this.pointLights && this.pointLights.length > 0) {
-            // Atualize apenas uma luz por vez
-            const lightIndex = (this.updateCounter / 3) % this.pointLights.length;
+            // Atualiza apenas uma luz por vez para melhorar performance
+            const lightIndex = Math.floor(this.updateCounter / 5) % this.pointLights.length;
             const light = this.pointLights[lightIndex];
             
-            // Altera lentamente a intensidade da luz
-            light.intensity = 0.7 + Math.sin(Date.now() * 0.001 + lightIndex * Math.PI/3) * 0.3;
+            // Otimização: só anima se a luz estiver próxima da câmera
+            if (this.camera) {
+                const distanceToCamera = light.position.distanceTo(this.camera.position);
+                if (distanceToCamera < 25) {
+                    // Altera lentamente a intensidade da luz
+                    light.intensity = 0.7 + Math.sin(now + lightIndex) * 0.3;
+                }
+            }
         }
         
         // Debug: mostra informações na tela se o modo de depuração estiver ativo
-        if (this.debugMode && this.fpsCounter % 60 === 0) { // Reduza a frequência de logs
+        if (this.debugMode && this.fpsCounter % 120 === 0) { // Reduza ainda mais a frequência de logs
             console.log("FPS:", Math.round(1/deltaTime));
         }
         
@@ -527,6 +549,9 @@ export class SceneManager {
      */
     render() {
         if (this.renderer && this.scene && this.camera) {
+            // Otimização: não renderiza se a página não estiver visível
+            if (document.hidden) return;
+            
             this.renderer.render(this.scene, this.camera);
         } else {
             console.error("SceneManager: Falha ao renderizar - componentes não inicializados");

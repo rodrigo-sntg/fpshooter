@@ -124,24 +124,37 @@ export class EnemyManager {
         let hitCount = 0;
         
         // Limite de verificações por frame para melhorar desempenho
-        const maxCheckPerFrame = 10;
+        const maxCheckPerFrame = 5;
         let checksThisFrame = 0;
-
-        for (const enemy of this.enemies) {
+        
+        // Verifica apenas um subconjunto de inimigos a cada frame
+        const startIndex = this.lastEnemyChecked || 0;
+        let currentIndex = startIndex;
+        
+        // Percorre os inimigos a partir do último verificado
+        for (let i = 0; i < this.enemies.length; i++) {
+            currentIndex = (startIndex + i) % this.enemies.length;
+            const enemy = this.enemies[currentIndex];
+            
             if (!enemy.bullets || enemy.bullets.length === 0) continue;
             
             // Apenas verifica um número limitado de inimigos por frame
             if (checksThisFrame >= maxCheckPerFrame) break;
             checksThisFrame++;
             
-            for (let i = enemy.bullets.length - 1; i >= 0; i--) {
-                const bullet = enemy.bullets[i];
+            // Otimização: verifica no máximo 5 projéteis por inimigo
+            const maxBulletsToCheck = Math.min(enemy.bullets.length, 5);
+            for (let j = 0; j < maxBulletsToCheck; j++) {
+                const index = enemy.bullets.length - 1 - j;
+                if (index < 0) break;
                 
-                // Verifica se o projétil está próximo o suficiente para verificar colisão detalhada
+                const bullet = enemy.bullets[index];
+                
+                // Otimização: se o jogador está muito longe, nem verifica esse inimigo
                 const distanceToPlayer = bullet.position.distanceTo(this.player.position);
                 
                 // Se está próximo e não colidiu, verifica colisão mais precisa
-                if (distanceToPlayer < 2.0 && !bullet.hasCollided) {
+                if (distanceToPlayer < 2.5 && !bullet.hasCollided) {
                     // Verifica se o projétil colide com o jogador
                     if (bullet.checkCollision(this.player)) {
                         // Causa dano ao jogador
@@ -159,18 +172,21 @@ export class EnemyManager {
                         if (bullet.addedToScene && this.scene) {
                             this.scene.remove(bullet.mesh);
                         }
-                        enemy.bullets.splice(i, 1);
+                        enemy.bullets.splice(index, 1);
                     }
                 } 
                 // Se o projétil está muito longe ou já colidiu, remove-o também
-                else if (bullet.distance > bullet.maxDistance || bullet.hasCollided) {
+                else if (bullet.distance > bullet.maxDistance || bullet.hasCollided || distanceToPlayer > 50) {
                     if (bullet.addedToScene && this.scene) {
                         this.scene.remove(bullet.mesh);
                     }
-                    enemy.bullets.splice(i, 1);
+                    enemy.bullets.splice(index, 1);
                 }
             }
         }
+        
+        // Atualiza o índice do último inimigo verificado
+        this.lastEnemyChecked = (currentIndex + 1) % this.enemies.length;
         
         return hitCount;
     }
@@ -274,75 +290,108 @@ export class EnemyManager {
     }
     
     /**
-     * Cria e adiciona um inimigo à cena
+     * Cria um novo inimigo
+     * @param {string} type - Tipo de inimigo ('basic', 'medium', 'heavy', 'boss')
+     * @param {THREE.Vector3} position - Posição onde o inimigo será criado
+     * @returns {Enemy} - O inimigo criado ou null se não criado
      */
-    spawnEnemy() {
-        // Limita o número de inimigos para melhorar desempenho
+    spawnEnemy(type = 'basic', position = null) {
+        // Limita o número total de inimigos para melhorar desempenho
         if (this.enemies.length >= 10) {
+            console.log("Limite de inimigos atingido, não spawnou novo inimigo");
             return null;
         }
         
-        // Seleciona um ponto de spawn aleatório
-        const spawnPoint = this.getRandomSpawnPoint();
+        // Escolhe o tipo de inimigo baseado na onda atual, se não especificado
+        if (!type || type === 'random') {
+            // Mais variação de tipos em ondas mais altas
+            const wave = this.gameState ? this.gameState.wave : 1;
+            
+            if (wave <= 1) {
+                // Onda 1: apenas básicos
+                type = 'basic';
+            } else if (wave <= 3) {
+                // Onda 2-3: básicos e alguns médios
+                const rand = Math.random();
+                type = rand < 0.7 ? 'basic' : 'medium';
+            } else if (wave <= 5) {
+                // Onda 4-5: básicos, médios e alguns pesados
+                const rand = Math.random();
+                if (rand < 0.5) type = 'basic';
+                else if (rand < 0.8) type = 'medium';
+                else type = 'heavy';
+            } else {
+                // Onda 6+: mistura de todos os tipos
+                const rand = Math.random();
+                if (rand < 0.3) type = 'basic';
+                else if (rand < 0.6) type = 'medium';
+                else type = 'heavy';
+            }
+        }
         
-        // Decide o tipo de inimigo baseado na onda atual
-        let enemyType = 'basic'; // Padrão: sentinelas (basic)
-        const currentWave = this.gameState.currentWave;
-        
-        // Na primeira onda (missão inicial), todos os inimigos devem ser sentinelas (basic)
-        if (currentWave === 1) {
-            enemyType = 'basic'; // Forçar sentinelas na primeira onda
-            console.log("Criando uma sentinela (inimigo básico)");
-        } else if (this.isBossWave) {
-            // Em ondas de chefe, todos são heavy com um único chefe
-            enemyType = 'heavy';
+        // Escolhe uma posição aleatória se não for fornecida
+        let enemyPosition;
+        if (position) {
+            enemyPosition = position.clone();
         } else {
-            // Distribui tipos diferentes com base na onda
-            const rand = Math.random();
+            // Determina uma posição afastada do jogador
+            const minDistance = 20;
+            const maxDistance = 40;
+            const maxAttempts = 5;
             
-            if (currentWave >= 5) {
-                // Maior probabilidade de inimigos médios e pesados em ondas avançadas
-                if (rand < 0.3) {
-                    enemyType = 'heavy';
-                } else if (rand < 0.7) {
-                    enemyType = 'medium';
+            let validPosition = false;
+            let attempts = 0;
+            
+            while (!validPosition && attempts < maxAttempts) {
+                // Ângulo aleatório
+                const angle = Math.random() * Math.PI * 2;
+                
+                // Distância entre mínima e máxima
+                const distance = minDistance + Math.random() * (maxDistance - minDistance);
+                
+                // Cálculo de posição
+                enemyPosition = new THREE.Vector3(
+                    this.player.position.x + Math.cos(angle) * distance,
+                    0,
+                    this.player.position.z + Math.sin(angle) * distance
+                );
+                
+                // Verifica se a posição está longe o suficiente de outros inimigos
+                validPosition = true;
+                for (const enemy of this.enemies) {
+                    if (enemy.position.distanceTo(enemyPosition) < 5) {
+                        validPosition = false;
+                        break;
+                    }
                 }
-            } else if (currentWave >= 3) {
-                // Introduz inimigos médios nas ondas seguintes
-                if (rand < 0.5) {
-                    enemyType = 'medium';
-                }
-            } else if (currentWave >= 2) {
-                // Poucos inimigos médios na onda 2
-                if (rand < 0.25) {
-                    enemyType = 'medium';
-                }
+                
+                attempts++;
+            }
+            
+            // Se não foi possível encontrar uma posição válida, usa a última tentativa
+            if (!validPosition) {
+                console.log("Não foi possível encontrar posição ideal, usando última posição tentada");
             }
         }
         
-        try {
-            // Cria o inimigo
-            const enemy = new Enemy(spawnPoint, enemyType);
-            
-            // Define a referência da cena para o inimigo
-            if (this.scene) {
-                enemy.setScene(this.scene);
-            }
-            
-            // Adiciona à cena e à lista
-            this.scene.add(enemy.mesh);
-            this.enemies.push(enemy);
-            
-            console.log(`Inimigo do tipo '${enemyType}' criado na posição:`, spawnPoint);
-            
-            // Atualiza o contador
-            this.enemiesRemaining--;
-            
-            return enemy;
-        } catch (error) {
-            console.error("Erro ao criar inimigo:", error);
-            return null;
-        }
+        // Cria o inimigo com uma altura de 0.5 unidades acima do chão
+        enemyPosition.y = 0.5;
+        const enemy = new Enemy(enemyPosition, type);
+        
+        // Configura o inimigo de acordo com seu tipo e onda atual
+        const wave = this.gameState ? this.gameState.wave : 1;
+        const waveMultiplier = 1 + (wave - 1) * 0.1; // +10% de stats por onda
+        
+        // Aumenta as estatísticas do inimigo de acordo com a onda
+        enemy.health *= waveMultiplier;
+        enemy.maxHealth = enemy.health;
+        enemy.damage *= waveMultiplier;
+        
+        // Adiciona o inimigo à cena
+        enemy.setScene(this.scene);
+        this.enemies.push(enemy);
+        
+        return enemy;
     }
     
     /**
@@ -413,53 +462,34 @@ export class EnemyManager {
                 const enemy = this.enemies[j];
                 
                 // Pula inimigos mortos
-                if (enemy.health <= 0) continue;
+                if (enemy.health <= 0 || enemy.state === 'dead') continue;
                 
-                // Logs adicionais para debug de sentinelas
-                const isSentinel = enemy.type === 'basic';
-                if (isSentinel) {
-                    // Exibe a distância entre o projétil e o sentinela para verificar o raio de colisão
-                    const distance = projectile.mesh.position.distanceTo(enemy.position);
-                    if (distance < 2) {
-                        console.log(`Projétil próximo a sentinela. Distância: ${distance.toFixed(2)}`);
-                    }
-                }
+                // Verifica a distância entre o projétil e o inimigo (verificação rápida)
+                const distance = projectile.position.distanceTo(enemy.position);
                 
-                if (projectile.checkCollision(enemy)) {
-                    console.log(`Colisão detectada com ${isSentinel ? 'sentinela' : 'inimigo tipo ' + enemy.type}!`);
+                // Distância para considerar uma colisão
+                const collisionDistance = enemy.type === 'basic' ? 5.0 : 4.0;
+                
+                // Se estiver próximo, faz uma verificação mais precisa
+                if (distance < collisionDistance) {
+                    console.log(`Projétil próximo a ${enemy.type}. Distância: ${distance.toFixed(2)}`);
                     
-                    // Causa dano ao inimigo
-                    const wasFatal = enemy.takeDamage(projectile.damage);
-                    
-                    // Marca o projétil como colidido
-                    projectile.hasCollided = true;
-                    
-                    // Adiciona pontos ao jogador
-                    this.gameState.addScore(10);
-                    
-                    // Adiciona o inimigo à lista de atingidos
-                    hitEnemies.push(enemy);
-                    
-                    // Se o inimigo morreu, adiciona pontos adicionais e registra o abate
-                    if (wasFatal) {
-                        // Pontuação baseada no tipo de inimigo
-                        const killScore = enemy.type === 'heavy' ? 100 : 
-                                         enemy.type === 'medium' ? 50 : 20;
+                    // Verifica colisão detalhada
+                    if (projectile.checkCollision(enemy)) {
+                        console.log(`Colisão confirmada com ${enemy.type}! Dano: ${projectile.damage}`);
                         
-                        this.gameState.addScore(killScore);
-                        this.gameState.addKill(enemy.type);
-                        
-                        // Alertar quando um sentinela for eliminado
-                        if (isSentinel && window.game && window.game.uiManager) {
-                            window.game.uiManager.showMessage(
-                                "Sentinela eliminado!", 
-                                1500, 
-                                'success'
-                            );
+                        // Causa dano ao inimigo
+                        const wasFatal = enemy.takeDamage(projectile.damage);
+                        if (wasFatal) {
+                            console.log(`Inimigo ${enemy.type} foi eliminado!`);
                         }
+                        
+                        // Adiciona à lista de inimigos atingidos
+                        hitEnemies.push(enemy);
+                        
+                        // Não precisa verificar mais inimigos para este projétil
+                        break;
                     }
-                    
-                    break; // Um projétil só pode atingir um inimigo
                 }
             }
         }
@@ -513,6 +543,56 @@ export class EnemyManager {
         } catch (error) {
             console.error("Erro ao criar sentinela:", error);
             return null;
+        }
+    }
+    
+    /**
+     * Atualiza apenas uma porção dos inimigos para distribuir o processamento
+     * @param {number} deltaTime - Tempo desde o último frame em segundos
+     * @param {number} startPct - Percentual inicial de inimigos para atualizar (0-1)
+     * @param {number} endPct - Percentual final de inimigos para atualizar (0-1)
+     */
+    updatePartial(deltaTime, startPct = 0, endPct = 1) {
+        // Verifica condições de segurança
+        if (!this.enemies || this.enemies.length === 0) {
+            return;
+        }
+        
+        // Segurança: não tenta atualizar se o player não está disponível
+        if (!this.player) {
+            console.warn("EnemyManager: Tentativa de atualizar inimigos sem referência ao player");
+            return;
+        }
+        
+        const totalEnemies = this.enemies.length;
+        
+        // Garante que os índices estão dentro dos limites válidos
+        let startIdx = Math.floor(startPct * totalEnemies);
+        let endIdx = Math.floor(endPct * totalEnemies);
+        
+        // Segurança: validação de limites
+        startIdx = Math.max(0, Math.min(startIdx, totalEnemies - 1));
+        endIdx = Math.max(startIdx + 1, Math.min(endIdx, totalEnemies));
+        
+        // Atualiza apenas a porção especificada dos inimigos
+        for (let i = startIdx; i < endIdx; i++) {
+            const enemy = this.enemies[i];
+            if (enemy) {
+                try {
+                    // Passa o player como segundo parâmetro
+                    enemy.update(deltaTime, this.player);
+                } catch (error) {
+                    console.error(`Erro ao atualizar inimigo ${i}:`, error);
+                }
+            }
+        }
+        
+        // Verifica colisões apenas a cada X frames para otimizar
+        if (this.frameCounter === undefined) this.frameCounter = 0;
+        this.frameCounter++;
+        
+        if (this.frameCounter % 3 === 0) {
+            this.checkEnemyBulletCollisions();
         }
     }
 } 

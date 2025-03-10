@@ -33,19 +33,21 @@ export class GameState {
         
         // Elementos de tela
         this.screens = {
-            startScreen: document.getElementById('start-screen'),
-            pauseScreen: document.getElementById('pause-screen'),
-            gameoverScreen: document.getElementById('gameover-screen')
+            startScreen: document.getElementById('startScreen'),
+            pauseScreen: document.getElementById('pauseScreen'),
+            gameoverScreen: document.getElementById('gameoverScreen'),
+            mobileTutorialScreen: document.getElementById('mobileTutorialScreen'),
+            multiplayerScreen: document.getElementById('multiplayerScreen')
         };
     }
     
     /**
      * Muda o estado do jogo e atualiza a interface
-     * @param {string} newState - Novo estado ('menu', 'playing', 'paused', 'gameover')
+     * @param {string} newState - Novo estado ('menu', 'playing', 'paused', 'gameover', 'tutorial-mobile')
      */
     setState(newState) {
         // Verifica que o estado é válido
-        if (!['menu', 'playing', 'paused', 'gameover'].includes(newState)) {
+        if (!['menu', 'playing', 'paused', 'gameover', 'tutorial-mobile'].includes(newState)) {
             console.error(`Estado inválido: ${newState}`);
             return;
         }
@@ -54,28 +56,40 @@ export class GameState {
         this.state = newState;
         
         // Atualiza flags de estado
-        this.isPaused = (newState === 'paused');
+        this.isPaused = (newState === 'paused' || newState === 'tutorial-mobile');
         this.isGameOver = (newState === 'gameover');
         
         // Esconde todas as telas primeiro
         this.hideAllScreens();
         
-        // Mostra a tela apropriada
+        // Mostra a tela apropriada (agora usando display: flex em vez de classe 'active')
         switch (newState) {
             case 'menu':
-                this.screens.startScreen.classList.add('active');
+                if (this.screens.startScreen) {
+                    this.screens.startScreen.style.display = 'flex';
+                }
                 break;
             case 'paused':
-                this.screens.pauseScreen.classList.add('active');
+                if (this.screens.pauseScreen) {
+                    this.screens.pauseScreen.style.display = 'flex';
+                }
                 break;
             case 'gameover':
                 this.updateHighScore();
-                this.screens.gameoverScreen.classList.add('active');
-                this.uiElements.finalScoreValue.textContent = this.score;
+                if (this.screens.gameoverScreen) {
+                    this.screens.gameoverScreen.style.display = 'flex';
+                }
+                if (this.uiElements.finalScoreValue) {
+                    this.uiElements.finalScoreValue.textContent = this.score;
+                }
+                break;
+            case 'tutorial-mobile':
+                if (this.screens.mobileTutorialScreen) {
+                    this.screens.mobileTutorialScreen.style.display = 'flex';
+                }
                 break;
             case 'playing':
                 // No estado de jogo, nenhuma tela de menu é exibida
-                this.hideAllScreens();
                 break;
         }
         
@@ -88,7 +102,9 @@ export class GameState {
      */
     hideAllScreens() {
         Object.values(this.screens).forEach(screen => {
-            screen.classList.remove('active');
+            if (screen) {
+                screen.style.display = 'none';
+            }
         });
     }
     

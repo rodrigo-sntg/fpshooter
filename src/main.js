@@ -15,6 +15,9 @@ import { EnemyManager } from './enemy-manager.js';
 import { AudioManager } from './audio-manager.js';
 import { UIManager } from './ui-manager.js';
 import { MissionManager } from './mission-manager.js';
+import { MobileControls } from './mobile-controls.js';
+import { NetworkManager } from './network-manager.js';
+import { RemotePlayer } from './remote-player.js';
 
 /**
  * Classe principal que gerencia o jogo
@@ -77,7 +80,30 @@ class Game {
         // Inicia na tela de título
         this.gameState.setState('menu');
         
-        console.log("Jogo inicializado com sucesso!");
+        // Tempo do último frame
+        this.lastFrameTime = 0;
+        
+        // Contador de frames
+        this.frameCounter = 0;
+        
+        // Última vez que as estatísticas de FPS foram atualizadas
+        this.lastFpsUpdateTime = 0;
+        
+        // Tempo entre verificações de colisão (para otimização)
+        this.collisionCheckInterval = 2;
+        
+        // Controles móveis
+        this.mobileControls = new MobileControls(this.inputManager);
+        
+        // Adiciona flag para indicar se é modo multiplayer
+        this.isMultiplayer = false;
+        this.networkManager = null;
+        this.remotePlayers = new Map(); // id -> RemotePlayer
+        
+        // Inicializa o manager de rede quando o jogador estiver pronto
+        this.multiplayerReady = false;
+        
+        console.log("Jogo inicializado");
     }
     
     /**
@@ -148,45 +174,95 @@ class Game {
     }
     
     /**
-     * Inicia o jogo a partir da tela de menu
+     * Inicia o jogo
      */
     startGame() {
-        console.log("Iniciando jogo...");
+        console.log("Iniciando o jogo...");
         
-        // Muda o estado do jogo para jogando
-        this.gameState.setState('playing');
+        // Desbloqueia o áudio (importante para navegadores modernos)
+        if (this.audioManager && typeof this.audioManager.unlockAudio === 'function') {
+            this.audioManager.unlockAudio();
+        }
         
-        // Reset do jogador, ondas e outros sistemas
-        this.player.reset();
-        this.enemyManager.reset();
+        // Reseta a pontuação e status do jogo
         this.gameState.resetScore();
+        
+        // Reseta o jogador
+        this.player.reset();
+        
+        // Reseta o gerenciador de inimigos
+        this.enemyManager.reset();
+        
+        // Carrega as missões da fase 1
+        this.missionManager.loadMissions(1);
         
         // Inicializa a primeira onda
         this.enemyManager.startNextWave();
         
-        // Carrega a primeira fase com suas missões
-        this.missionManager.loadMissions(1);
-        
-        // Mostra tutorial básico de controles
+        // Garante que a arma seja visível após alguns segundos
         setTimeout(() => {
-            if (this.uiManager) {
-                this.uiManager.showTutorial('default');
+            if (this.player && typeof this.player.ensureWeaponVisible === 'function') {
+                this.player.ensureWeaponVisible();
             }
-        }, 2000);
+        }, 3000);
         
-        // Esconde o cursor do mouse e bloqueia-o para controle de câmera
+        // Se for um dispositivo móvel, mostra o tutorial de controles
+        if (this.inputManager.isMobileDevice) {
+            // Pausa o jogo temporariamente
+            this.gameState.setState('tutorial-mobile');
+            
+            // Mostra o tutorial
+            this.uiManager.showMobileTutorial();
+        } else {
+            // Caso não seja móvel, inicia o jogo normalmente
+            this.gameState.setState('playing');
+            
+            // Bloqueia o ponteiro do mouse
+            this.lockMouse();
+            
+            // Mostra mensagem de tutorial inicial
+            this.uiManager.showMessage('Use WASD para mover e o mouse para mirar. Clique para atirar.', 5000);
+            
+            // Após alguns segundos, mostra tutorial completo
+            setTimeout(() => {
+                if (this.uiManager && typeof this.uiManager.showTutorial === 'function') {
+                    this.uiManager.showTutorial('default');
+                }
+            }, 6000);
+        }
+        
+        // Inicializa o modo multiplayer
+        if (this.multiplayerEnabled) {
+            this.startMultiplayerMode();
+            
+            // Conecta automaticamente ao servidor padrão se configurado
+            if (this.defaultServerUrl) {
+                this.connectToMultiplayerServer(this.defaultServerUrl)
+                    .catch(error => {
+                        console.error("Falha ao conectar ao servidor padrão:", error);
+                    });
+            }
+        }
+        
+        // Inicia o loop de jogo se ainda não estiver rodando
+        if (!this.isRunning) {
+            console.log("Iniciando loop principal do jogo");
+            this.isRunning = true;
+            this.lastTime = performance.now();
+            requestAnimationFrame(this.gameLoop.bind(this));
+        }
+        
+        console.log("Jogo iniciado!");
+    }
+    
+    /**
+     * Bloqueia o ponteiro do mouse para controle da câmera
+     */
+    lockMouse() {
         try {
             document.body.requestPointerLock();
         } catch (error) {
             console.error("Erro ao bloquear o ponteiro:", error);
-        }
-        
-        // Inicia o loop do jogo se ainda não estiver rodando
-        if (!this.isRunning) {
-            console.log("Iniciando loop do jogo");
-            this.isRunning = true;
-            this.lastTime = performance.now();
-            requestAnimationFrame(this.gameLoop.bind(this));
         }
     }
     
@@ -202,14 +278,26 @@ class Game {
     }
     
     /**
-     * Retoma o jogo da tela de pausa
+     * Retoma o jogo após pausa
      */
     resumeGame() {
-        if (this.gameState.state === 'paused') {
-            console.log("Retomando jogo");
-            this.gameState.setState('playing');
-            document.body.requestPointerLock();
+        console.log("Retomando jogo...");
+        
+        // Muda o estado do jogo para jogando
+        this.gameState.setState('playing');
+        
+        // Esconde o cursor do mouse e bloqueia-o para controle de câmera
+        this.lockMouse();
+        
+        // Inicia o loop de jogo se ainda não estiver rodando
+        if (!this.isRunning) {
+            console.log("Reiniciando loop do jogo após pausa");
+            this.isRunning = true;
+            this.lastTime = performance.now();
+            requestAnimationFrame(this.gameLoop.bind(this));
         }
+        
+        console.log("Jogo retomado!");
     }
     
     /**
@@ -217,13 +305,32 @@ class Game {
      */
     restartGame() {
         console.log("Reiniciando jogo");
-        // Similar ao startGame, mas pode ter lógica adicional para reinício
+        // Armazena estado multiplayer
+        const wasMultiplayer = this.isMultiplayer;
+        const serverUrl = this.networkManager?.serverUrl;
+        const authToken = this.networkManager?.authToken;
+        
+        // Desconecta do servidor
+        if (wasMultiplayer) {
+            this.disconnectFromMultiplayerServer();
+        }
+        
+        // Código original de reinício
         this.gameState.setState('playing');
         this.player.reset();
         this.enemyManager.reset();
         this.gameState.resetScore();
         this.enemyManager.startNextWave();
         document.body.requestPointerLock();
+        
+        // Reconecta se estava em modo multiplayer
+        if (wasMultiplayer) {
+            this.startMultiplayerMode();
+            this.connectToMultiplayerServer(serverUrl, authToken)
+                .catch(error => {
+                    console.error("Falha ao reconectar ao servidor:", error);
+                });
+        }
     }
     
     /**
@@ -265,37 +372,53 @@ class Game {
     
     /**
      * Loop principal do jogo
+     * @param {number} currentTime - Tempo atual em milissegundos
      */
     gameLoop(currentTime) {
-        // Calcula o delta time (tempo entre frames)
-        const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1); // Limitado a 0.1s para evitar saltos grandes
-        this.lastTime = currentTime;
-        
-        // Apenas atualiza se o jogo estiver rodando
-        if (this.gameState.state === 'playing') {
-            try {
-                // Atualiza os gerenciadores e sistemas
+        try {
+            // Solicita o próximo frame de animação
+            requestAnimationFrame(this.gameLoop.bind(this));
+            
+            // Calcula o delta time (tempo entre frames)
+            const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1); // Limitado a 0.1s para evitar saltos grandes
+            this.lastTime = currentTime;
+            
+            // Contador de frames para otimização
+            if (!this.frameCounter) this.frameCounter = 0;
+            this.frameCounter++;
+            
+            // Apenas atualiza se o jogo estiver rodando
+            if (this.gameState.state === 'playing') {
+                // Atualiza input sempre para garantir responsividade
                 this.inputManager.update();
+                
+                // Sempre atualiza o jogador para movimento fluido
                 this.player.update(deltaTime);
                 
-                // Gerencia os projéteis do jogador
-                this.updatePlayerBullets();
-                
-                // Atualiza os inimigos (que por sua vez atualiza seus projéteis)
+                // Atualiza TODOS os inimigos a cada frame para movimento fluido
                 this.enemyManager.update(deltaTime);
                 
-                // Atualiza a cena (animações, etc.)
-                this.sceneManager.update(deltaTime);
-                
-                // Atualiza o gerenciador de missões
-                this.missionManager.update(deltaTime);
-                
-                // Verifica colisões a cada X frames para melhorar desempenho
-                if (!this.frameCount) this.frameCount = 0;
-                this.frameCount++;
-                
-                if (this.frameCount % 2 === 0) { // Verifica colisões apenas a cada 2 frames
+                // Otimização: Gerencia projéteis a cada 2 frames
+                if (this.frameCounter % 2 === 0) {
+                    this.updatePlayerBullets();
+                    
+                    // Verifica colisões a cada 2 frames (compromisso entre precisão e performance)
                     this.checkCollisions();
+                }
+                
+                // Otimização: Atualiza a cena (animações, luzes) a cada 3 frames
+                if (this.frameCounter % 3 === 0) {
+                    this.sceneManager.update(deltaTime);
+                }
+                
+                // Otimização: Atualiza o gerenciador de missões a cada 4 frames
+                if (this.frameCounter % 4 === 0) {
+                    this.missionManager.update(deltaTime);
+                }
+                
+                // Otimização: Atualiza a UI a cada 5 frames
+                if (this.frameCounter % 5 === 0) {
+                    this.uiManager.update();
                 }
                 
                 // Verifica condição de game over
@@ -303,24 +426,39 @@ class Game {
                     this.gameOver();
                 }
                 
-                // Atualiza a UI a cada 2 frames para melhorar desempenho
-                if (this.frameCount % 2 === 0) {
-                    this.uiManager.update();
+                // Atualização de jogadores remotos no modo multiplayer
+                if (this.isMultiplayer) {
+                    // Atualiza jogadores remotos
+                    this.remotePlayers.forEach(player => {
+                        player.update(deltaTime);
+                    });
+                    
+                    // Atualiza gerenciador de rede
+                    this.networkManager.update(deltaTime);
+                    
+                    // Envia atualizações ao servidor em intervalos
+                    if (this.networkUpdateTimer <= 0) {
+                        // Envia posição e rotação atual
+                        this.networkManager.sendPlayerUpdate(
+                            this.player.position,
+                            this.player.velocity,
+                            this.player.rotation
+                        );
+                        
+                        // Redefine o temporizador (10 atualizações por segundo)
+                        this.networkUpdateTimer = 0.1;
+                    } else {
+                        this.networkUpdateTimer -= deltaTime;
+                    }
                 }
-            } catch (error) {
-                console.error("Erro no gameLoop:", error);
             }
-        }
-        
-        // Sempre renderiza a cena, mesmo em estados não-jogando
-        try {
+            
+            // Sempre renderiza a cena, mesmo em estados não-jogando
             this.sceneManager.render();
+            
         } catch (error) {
-            console.error("Erro ao renderizar:", error);
+            console.error("Erro no gameLoop:", error);
         }
-        
-        // Continua o loop de jogo
-        requestAnimationFrame(this.gameLoop.bind(this));
     }
     
     /**
@@ -420,6 +558,199 @@ class Game {
         } catch (error) {
             console.error("Erro ao verificar colisões:", error);
         }
+    }
+    
+    // Método para conectar ao servidor multijogador
+    connectToMultiplayerServer(serverUrl, authToken = null) {
+        if (!this.multiplayerReady) {
+            console.warn("Game: Sistema multiplayer ainda não está pronto. Use startMultiplayerMode() primeiro.");
+            return Promise.reject("Sistema multiplayer ainda não está pronto");
+        }
+        
+        if (this.isMultiplayer && this.networkManager?.connected) {
+            console.warn("Game: Já está conectado a um servidor multiplayer");
+            return Promise.reject("Já conectado");
+        }
+        
+        console.log(`Game: Conectando ao servidor multiplayer ${serverUrl}`);
+        
+        return this.networkManager.connect(serverUrl, authToken)
+            .then(() => {
+                this.isMultiplayer = true;
+                this.uiManager.showMessage("Conectado ao servidor multiplayer", 3000, "success");
+                console.log("Game: Conectado com sucesso ao servidor multiplayer");
+                
+                // Configura callbacks para eventos de rede
+                this._setupNetworkCallbacks();
+                
+                return true;
+            })
+            .catch(error => {
+                console.error("Game: Falha ao conectar ao servidor multiplayer", error);
+                this.uiManager.showMessage("Falha ao conectar: " + error, 5000, "error");
+                return Promise.reject(error);
+            });
+    }
+    
+    // Inicializa o modo multiplayer
+    startMultiplayerMode() {
+        if (!this.player || !this.gameState) {
+            console.warn("Game: Jogador ou estado do jogo não estão inicializados");
+            return false;
+        }
+        
+        console.log("Game: Inicializando modo multiplayer");
+        
+        // Cria o gerenciador de rede
+        this.networkManager = new NetworkManager(this.gameState, this.player);
+        
+        // Adiciona referência à cena no player para remover projéteis
+        this.player.scene = this.sceneManager.scene;
+        
+        // Configura o temporizador de atualização da rede
+        this.networkUpdateTimer = 0;
+        
+        // Flag para indicar que o multiplayer está pronto
+        this.multiplayerReady = true;
+        
+        console.log("Game: Modo multiplayer inicializado e pronto para conexão");
+        return true;
+    }
+    
+    // Desconecta do servidor multiplayer
+    disconnectFromMultiplayerServer() {
+        if (!this.isMultiplayer || !this.networkManager) {
+            console.warn("Game: Não está conectado a um servidor multiplayer");
+            return;
+        }
+        
+        console.log("Game: Desconectando do servidor multiplayer");
+        
+        // Desconecta o gerenciador de rede
+        this.networkManager.disconnect();
+        
+        // Remove todos os jogadores remotos
+        this._removeAllRemotePlayers();
+        
+        // Reseta flags
+        this.isMultiplayer = false;
+    }
+    
+    // Configura callbacks para eventos de rede
+    _setupNetworkCallbacks() {
+        if (!this.networkManager) return;
+        
+        // Quando um jogador se conecta
+        this.networkManager.onPlayerJoined = (playerData) => {
+            console.log(`Game: Novo jogador conectado [${playerData.id}]`);
+            this._createRemotePlayer(playerData.id, playerData);
+            
+            // Notifica o jogador via UI
+            this.uiManager.showMessage(`Jogador ${playerData.id} entrou no jogo`, 3000, "info");
+        };
+        
+        // Quando um jogador se desconecta
+        this.networkManager.onPlayerLeft = (playerData) => {
+            console.log(`Game: Jogador desconectado [${playerData.id}]`);
+            this._removeRemotePlayer(playerData.id);
+            
+            // Notifica o jogador via UI
+            this.uiManager.showMessage(`Jogador ${playerData.id} saiu do jogo`, 3000, "info");
+        };
+        
+        // Quando a conexão com o servidor é perdida
+        this.networkManager.onDisconnect = (reason) => {
+            console.log(`Game: Desconectado do servidor: ${reason}`);
+            
+            // Notifica o jogador via UI
+            this.uiManager.showMessage(`Desconectado do servidor: ${reason}`, 5000, "error");
+            
+            // Remove todos os jogadores remotos
+            this._removeAllRemotePlayers();
+            
+            // Reseta flags
+            this.isMultiplayer = false;
+        };
+    }
+    
+    // Cria um jogador remoto
+    _createRemotePlayer(id, playerData) {
+        if (this.remotePlayers.has(id)) {
+            console.warn(`Game: Jogador remoto [${id}] já existe`);
+            return;
+        }
+        
+        // Cria um novo jogador remoto
+        const remotePlayer = new RemotePlayer(
+            id, 
+            playerData, 
+            this.sceneManager.scene
+        );
+        
+        // Adiciona ao mapa de jogadores remotos
+        this.remotePlayers.set(id, remotePlayer);
+        
+        console.log(`Game: Jogador remoto [${id}] criado`);
+    }
+    
+    // Remove um jogador remoto
+    _removeRemotePlayer(id) {
+        const remotePlayer = this.remotePlayers.get(id);
+        if (!remotePlayer) return;
+        
+        // Remove da cena
+        remotePlayer.remove();
+        
+        // Remove do mapa
+        this.remotePlayers.delete(id);
+        
+        console.log(`Game: Jogador remoto [${id}] removido`);
+    }
+    
+    // Remove todos os jogadores remotos
+    _removeAllRemotePlayers() {
+        this.remotePlayers.forEach((player, id) => {
+            player.remove();
+        });
+        
+        this.remotePlayers.clear();
+        console.log("Game: Todos os jogadores remotos foram removidos");
+    }
+    
+    // Sobrescrever método shoot para enviar informações ao servidor
+    shoot() {
+        // Código original de tiro...
+        
+        // Envia informação de tiro ao servidor se estiver no modo multiplayer
+        if (this.isMultiplayer && this.networkManager) {
+            const position = this.player.getBulletSpawnPosition();
+            const direction = this.player.getBulletDirection();
+            
+            this.networkManager.sendShoot(position, direction);
+        }
+    }
+    
+    // Adicionar método para mostrar estatísticas de rede na UI
+    showNetworkStats() {
+        if (!this.isMultiplayer || !this.networkManager) {
+            console.warn("Estatísticas de rede não disponíveis: modo multiplayer não ativo");
+            return;
+        }
+        
+        const stats = {
+            latency: this.networkManager.latency + "ms",
+            connectedPlayers: this.remotePlayers.size + 1, // +1 para incluir o jogador local
+            playerId: this.networkManager.playerId
+        };
+        
+        console.log("Estatísticas de rede:", stats);
+        
+        // Exibe na UI
+        this.uiManager.showMessage(
+            `Latência: ${stats.latency} | Jogadores: ${stats.connectedPlayers} | ID: ${stats.playerId}`,
+            5000,
+            "info"
+        );
     }
 }
 

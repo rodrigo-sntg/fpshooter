@@ -52,48 +52,70 @@ export class Player {
     }
     
     /**
-     * Configura o modelo da arma e anexa à câmera
+     * Configura a arma
      */
     setupWeapon() {
-        if (!this.camera) {
-            console.error("Player: Não é possível configurar a arma - câmera não definida");
-            return;
-        }
+        // Configuração de atributos iniciais da arma
+        this.ammo = WEAPON.MAGAZINE_SIZE;
+        this.reserveAmmo = WEAPON.MAX_AMMO;
+        this.fireTimer = 0;
+        this.isReloading = false;
+        this.reloadTimer = 0;
         
-        // Grupo para arma
+        // Criar modelo 3D da arma em primeira pessoa
+        this.createWeaponModel();
+    }
+    
+    /**
+     * Cria o modelo 3D da arma em primeira pessoa
+     */
+    createWeaponModel() {
+        // Grupo para a arma (será filho da câmera)
         this.weaponGroup = new THREE.Group();
         
-        // Cria o modelo da arma (um cano simples por enquanto)
-        const barrelGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 16);
-        const barrelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
-        this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
-        this.barrel.rotation.x = Math.PI / 2;
-        this.barrel.position.set(0, -0.15, -0.25);
+        console.log("Criando modelo de arma em primeira pessoa");
         
-        // Corpo da arma
-        const bodyGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.6);
-        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
-        this.body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        this.body.position.set(0, -0.3, 0);
+        // Modelo simples de uma pistola usando geometrias básicas
+        // Corpo principal da arma - AUMENTANDO O TAMANHO
+        const gunBody = new THREE.Mesh(
+            new THREE.BoxGeometry(0.2, 0.3, 0.8),
+            new THREE.MeshPhongMaterial({ color: 0x222222, shininess: 30 })
+        );
+        gunBody.position.set(0, -0.3, 0);
+        this.weaponGroup.add(gunBody);
         
-        // Cabo da arma
-        const gripGeometry = new THREE.BoxGeometry(0.1, 0.4, 0.1);
-        const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        this.grip = new THREE.Mesh(gripGeometry, gripMaterial);
-        this.grip.position.set(0, -0.55, 0.1);
+        // Cano da arma - AUMENTANDO O TAMANHO
+        const barrel = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.05, 0.05, 0.6, 8),
+            new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 50 })
+        );
+        barrel.rotation.x = Math.PI / 2;
+        barrel.position.set(0, -0.2, 0.5);
+        this.weaponGroup.add(barrel);
         
-        // Adiciona as partes ao grupo da arma
-        this.weaponGroup.add(this.barrel);
-        this.weaponGroup.add(this.body);
-        this.weaponGroup.add(this.grip);
+        // Empunhadura - AUMENTANDO O TAMANHO
+        const handle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.15, 0.4, 0.2),
+            new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 20 })
+        );
+        handle.position.set(0, -0.5, 0);
+        this.weaponGroup.add(handle);
         
-        // Posiciona a arma na câmera
-        this.weaponGroup.position.set(0.3, -0.3, -0.5);
+        // Mira
+        const sight = new THREE.Mesh(
+            new THREE.BoxGeometry(0.04, 0.04, 0.04),
+            new THREE.MeshPhongMaterial({ color: 0xff0000 })
+        );
+        sight.position.set(0, -0.1, 0.35);
+        this.weaponGroup.add(sight);
+        
+        // Posiciona a arma na câmera - REPOSICIONANDO
+        this.weaponGroup.position.set(0.3, -0.4, -0.8);
         
         // Adiciona a arma à câmera
         this.camera.add(this.weaponGroup);
         
-        console.log("Arma configurada");
+        console.log("Arma criada e adicionada à câmera:", !!this.weaponGroup);
     }
     
     /**
@@ -117,6 +139,9 @@ export class Player {
         
         // Atualiza os projéteis
         this.updateBullets(deltaTime);
+        
+        // Anima o modelo da arma durante o movimento
+        this.animateWeapon(deltaTime);
     }
     
     /**
@@ -239,74 +264,202 @@ export class Player {
     }
     
     /**
-     * Atualiza os projéteis disparados pelo jogador
-     * @param {number} deltaTime - Tempo desde o último frame em segundos
+     * Atualiza o estado dos projéteis ativos
+     * @param {number} deltaTime - Tempo desde o último frame
      */
     updateBullets(deltaTime) {
-        // Atualiza a posição de cada projétil e remove os que estão fora do alcance
+        if (!this.bullets || this.bullets.length === 0) return;
+        
+        // Limita o número de projéteis ativos para melhorar desempenho
+        if (this.bullets.length > 10) {
+            // Remove os projéteis mais antigos
+            const toRemove = this.bullets.length - 10;
+            for (let i = 0; i < toRemove; i++) {
+                const oldBullet = this.bullets[i];
+                if (oldBullet.addedToScene && this.scene) {
+                    oldBullet.removeFromScene(this.scene);
+                }
+                // Devolve ao pool
+                Bullet.recycle(oldBullet);
+            }
+            this.bullets = this.bullets.slice(toRemove);
+        }
+        
+        // Remove projéteis que colidiram ou estão muito longe
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i];
+            
+            if (!bullet) continue;
+            
+            // Atualiza a posição e verifica colisões
             bullet.update(deltaTime);
             
-            // Remove o projétil se estiver fora do alcance ou colidiu
-            if (bullet.distance > WEAPON.RANGE || bullet.hasCollided) {
+            // Se o projétil colidiu ou está muito longe, remove-o
+            if (bullet.hasCollided || bullet.distance > bullet.maxDistance) {
+                // Remove da cena
+                if (bullet.addedToScene && this.scene) {
+                    bullet.removeFromScene(this.scene);
+                }
+                
+                // Recicla o projétil (devolve ao pool)
+                Bullet.recycle(bullet);
+                
+                // Remove da lista de projéteis ativos
                 this.bullets.splice(i, 1);
             }
         }
     }
     
     /**
-     * Dispara a arma do jogador
+     * Atira com a arma do jogador
+     * @returns {boolean} - Se o tiro foi bem-sucedido
      */
     shoot() {
-        // Verifica se pode disparar
-        if (this.ammo <= 0 || this.fireTimer > 0 || this.isReloading) {
-            return;
+        // Verifica se pode atirar (munição, recarregando, cooldown)
+        if (this.ammo <= 0) {
+            this.playEmptySound();
+            
+            // Auto-recarrega quando a munição acaba
+            if (!this.isReloading && this.reserveAmmo > 0) {
+                this.startReloading();
+            }
+            
+            return false;
         }
         
-        // Reduz a munição
+        if (this.isReloading) {
+            return false;
+        }
+        
+        if (this.fireTimer > 0) {
+            return false;
+        }
+        
+        // Decrementa munição
         this.ammo--;
         
-        // Define o timer de disparo
+        // Define o timer para impedir tiros rápidos demais
         this.fireTimer = WEAPON.FIRE_RATE;
         
-        // Limita o número máximo de projéteis ativos para melhorar desempenho
-        if (this.bullets.length >= 10) {
-            return;
-        }
-        
-        // Obtém a direção exata para onde a câmera está olhando
-        const bulletDirection = new THREE.Vector3();
-        this.camera.getWorldDirection(bulletDirection);
-        
-        // Posição inicial do projétil (mais à frente da câmera para evitar auto-colisão)
-        const bulletPosition = this.camera.position.clone().add(
-            bulletDirection.clone().multiplyScalar(1.0) // Aumentado para evitar colisão com o jogador
-        );
-        
-        // Cria o projétil com a direção e posição calculadas
-        const bullet = new Bullet(
-            bulletPosition,
-            bulletDirection,
-            true // É um projétil do jogador
-        );
-        
-        // Adiciona o projétil à lista
-        this.bullets.push(bullet);
-        
-        // Adiciona um recuo na câmera (efeito visual)
-        this.camera.position.sub(bulletDirection.clone().multiplyScalar(WEAPON.RECOIL));
-        setTimeout(() => {
-            this.camera.position.add(bulletDirection.clone().multiplyScalar(WEAPON.RECOIL));
-        }, 50);
-        
-        // Tocar som de tiro
+        // Reproduz som de tiro
         this.playShootSound();
         
-        // Se a munição acabou e tem reserva, recarregar automaticamente
-        if (this.ammo === 0 && this.reserveAmmo > 0) {
-            this.startReloading();
+        // Dispara o projétil
+        const position = this.getBulletSpawnPosition();
+        const direction = this.getBulletDirection();
+        
+        // Cria um novo projétil do pool
+        const bullet = Bullet.get(position, direction, true);
+        
+        // Se a referência da cena estiver disponível, adiciona à cena
+        if (this.scene) {
+            bullet.addToScene(this.scene);
         }
+        
+        // Adiciona à lista de projéteis ativos
+        if (!this.bullets) this.bullets = [];
+        this.bullets.push(bullet);
+        
+        // Inicia animação de recuo
+        this.startRecoilAnimation();
+        
+        // Cria o efeito visual de disparo
+        this.createMuzzleFlash();
+        
+        // Notifica o servidor multiplayer (se o jogo estiver em modo multiplayer)
+        if (window.game && window.game.isMultiplayer && window.game.networkManager) {
+            window.game.networkManager.sendShoot(position, direction);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Inicia a animação de recuo da arma
+     */
+    startRecoilAnimation() {
+        this.recoilAnimation = {
+            active: true,
+            time: 0,
+            duration: 0.1
+        };
+    }
+    
+    /**
+     * Retorna a posição de onde o projétil deve ser criado
+     * @returns {THREE.Vector3} - Posição inicial do projétil
+     */
+    getBulletSpawnPosition() {
+        const position = new THREE.Vector3();
+        
+        // Pega a posição da ponta da arma ou da câmera se a arma não estiver visível
+        if (this.weaponModel && this.weaponModel.visible) {
+            // Posição baseada na arma
+            position.copy(this.weaponModel.position).add(new THREE.Vector3(0.3, -0.1, -1));
+        } else {
+            // Posição baseada na câmera
+            position.copy(this.camera.position);
+            // Avança um pouco na direção da câmera para evitar colisão imediata
+            const direction = new THREE.Vector3();
+            this.camera.getWorldDirection(direction);
+            position.add(direction.multiplyScalar(0.5));
+        }
+        
+        return position;
+    }
+    
+    /**
+     * Retorna a direção em que o projétil deve ser disparado
+     * @returns {THREE.Vector3} - Direção normalizada
+     */
+    getBulletDirection() {
+        const direction = new THREE.Vector3();
+        this.camera.getWorldDirection(direction);
+        return direction;
+    }
+    
+    /**
+     * Cria um efeito de flash na ponta da arma ao disparar
+     */
+    createMuzzleFlash() {
+        if (!this.weaponGroup) return;
+        
+        // Verifica se já existe um flash e remove
+        if (this.muzzleFlash) {
+            this.weaponGroup.remove(this.muzzleFlash);
+        }
+        
+        // Cria um grupo para o flash
+        this.muzzleFlash = new THREE.Group();
+        
+        // Luz pontual para iluminar a área
+        const flashLight = new THREE.PointLight(0xffaa22, 3, 5);
+        flashLight.position.set(0, -0.2, 0.6);
+        this.muzzleFlash.add(flashLight);
+        
+        // Círculo principal do flash - AUMENTADO
+        const flashGeometry = new THREE.CircleGeometry(0.1, 16);
+        const flashMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xffff99,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        flash.position.set(0, -0.2, 0.6);
+        flash.rotation.y = Math.PI / 2;
+        this.muzzleFlash.add(flash);
+        
+        // Adiciona o flash à arma
+        this.weaponGroup.add(this.muzzleFlash);
+        
+        // Remove o flash após um curto período
+        setTimeout(() => {
+            if (this.muzzleFlash && this.weaponGroup) {
+                this.weaponGroup.remove(this.muzzleFlash);
+                this.muzzleFlash = null;
+            }
+        }, 70); // Aumentando duração para ser mais visível
     }
     
     /**
@@ -321,8 +474,70 @@ export class Player {
         this.isReloading = true;
         this.reloadTimer = WEAPON.RELOAD_TIME;
         
+        // Inicia animação de recarga
+        this.startReloadAnimation();
+        
         // Tocar som de recarga
         this.playReloadSound();
+    }
+    
+    /**
+     * Inicia a animação de recarga da arma
+     */
+    startReloadAnimation() {
+        if (!this.weaponGroup) return;
+        
+        // Salva a posição original
+        const originalPosition = {
+            x: this.weaponGroup.position.x,
+            y: this.weaponGroup.position.y,
+            z: this.weaponGroup.position.z
+        };
+        
+        const originalRotation = {
+            x: this.weaponGroup.rotation.x,
+            y: this.weaponGroup.rotation.y,
+            z: this.weaponGroup.rotation.z
+        };
+        
+        // Animação de recarga - rotação para baixo e depois volta
+        const reloadAnimation = () => {
+            const progress = 1 - (this.reloadTimer / WEAPON.RELOAD_TIME);
+            
+            // Fase 1: rotação para baixo/lado (0-25%)
+            if (progress < 0.25) {
+                const phase1 = progress / 0.25;
+                this.weaponGroup.rotation.z = originalRotation.z - Math.PI / 4 * phase1;
+                this.weaponGroup.rotation.x = originalRotation.x - Math.PI / 6 * phase1;
+                this.weaponGroup.position.y = originalPosition.y - 0.1 * phase1;
+            }
+            // Fase 2: segura na posição (25-75%)
+            else if (progress < 0.75) {
+                this.weaponGroup.rotation.z = originalRotation.z - Math.PI / 4;
+                this.weaponGroup.rotation.x = originalRotation.x - Math.PI / 6;
+                this.weaponGroup.position.y = originalPosition.y - 0.1;
+            }
+            // Fase 3: retorna à posição original (75-100%)
+            else {
+                const phase3 = (progress - 0.75) / 0.25;
+                this.weaponGroup.rotation.z = originalRotation.z - Math.PI / 4 * (1 - phase3);
+                this.weaponGroup.rotation.x = originalRotation.x - Math.PI / 6 * (1 - phase3);
+                this.weaponGroup.position.y = originalPosition.y - 0.1 * (1 - phase3);
+            }
+            
+            // Continuar a animação se ainda estiver recarregando
+            if (this.isReloading) {
+                requestAnimationFrame(reloadAnimation);
+            } else {
+                // Restaura a posição original
+                this.weaponGroup.rotation.z = originalRotation.z;
+                this.weaponGroup.rotation.x = originalRotation.x;
+                this.weaponGroup.position.y = originalPosition.y;
+            }
+        };
+        
+        // Inicia a animação
+        requestAnimationFrame(reloadAnimation);
     }
     
     /**
@@ -523,16 +738,56 @@ export class Player {
         // Limpa a lista de projéteis
         this.bullets = [];
         
+        // Limpa animações
+        this.recoilAnimation = null;
+        
+        // Remove o modelo de arma antigo, se existir
+        if (this.weaponGroup && this.camera) {
+            this.camera.remove(this.weaponGroup);
+            this.weaponGroup = null;
+        }
+        
         // Atualiza a posição da câmera
         if (this.camera) {
             this.camera.position.set(this.position.x, this.position.y, this.position.z);
             this.camera.rotation.copy(this.rotation);
+            
+            // Reinicializa o modelo da arma
+            this.createWeaponModel();
+            
+            // Programa uma verificação para garantir que a arma esteja visível
+            setTimeout(() => this.ensureWeaponVisible(), 500);
         }
         
         // Atualiza o boundingBox
         this.updateBoundingBox();
         
         console.log("Jogador reiniciado na posição:", this.position);
+    }
+    
+    /**
+     * Garante que a arma seja exibida na tela
+     */
+    ensureWeaponVisible() {
+        if (!this.weaponGroup || !this.camera) return;
+        
+        console.log("Verificando visibilidade da arma...");
+        
+        // Se a arma não estiver visível, recria-a
+        if (!this.weaponGroup.parent) {
+            console.log("Arma não está no grafo de cena, recriando...");
+            this.camera.remove(this.weaponGroup);
+            this.createWeaponModel();
+        }
+        
+        // Força uma posição onde a arma será claramente visível
+        this.weaponGroup.position.set(0.3, -0.4, -0.8);
+        
+        // Dispara um tiro falso para mostrar a arma com efeito visual
+        setTimeout(() => {
+            console.log("Disparando tiro falso para destacar a arma...");
+            this.createMuzzleFlash();
+        }, 1000);
     }
     
     /**
@@ -550,6 +805,92 @@ export class Player {
             audioManager.play('empty');
         } else {
             console.warn('AudioManager não disponível para tocar som de arma vazia');
+        }
+    }
+    
+    /**
+     * Anima o modelo da arma durante o movimento e ações
+     * @param {number} deltaTime - Tempo desde o último frame
+     */
+    animateWeapon(deltaTime) {
+        if (!this.weaponGroup) return;
+        
+        // Obtém o vetor de movimento
+        const movement = this.inputManager.getMovementVector();
+        const isMoving = movement.x !== 0 || movement.z !== 0;
+        const isRunning = this.inputManager.isRunning();
+        
+        // Movimento de balanço ao andar
+        if (isMoving) {
+            // Frequência e amplitude do balanço
+            const frequency = isRunning ? 10 : 5; // Mais rápido ao correr
+            const amplitude = isRunning ? 0.05 : 0.03; // Mais amplo ao correr, mas mantendo visível
+            
+            // Animação de balanço baseada no tempo
+            const time = Date.now() * 0.001; 
+            const swingX = Math.sin(time * frequency) * amplitude;
+            const swingY = Math.abs(Math.sin(time * frequency * 2)) * amplitude * 0.5;
+            
+            // Aplica o movimento - USANDO A POSIÇÃO BASE MAIOR
+            this.weaponGroup.position.x = 0.3 + swingX;
+            this.weaponGroup.position.y = -0.4 - swingY;
+            
+            // Rotação leve durante o movimento
+            this.weaponGroup.rotation.z = swingX * 0.5;
+            this.weaponGroup.rotation.x = swingY * 0.5;
+        } else {
+            // Movimento suave de "respiração" quando parado
+            const breatheTime = Date.now() * 0.001;
+            const breatheAmount = Math.sin(breatheTime * 0.5) * 0.005;
+            
+            // Retorna suavemente à posição neutra - USANDO A POSIÇÃO BASE MAIOR
+            this.weaponGroup.position.x = THREE.MathUtils.lerp(
+                this.weaponGroup.position.x, 0.3, deltaTime * 3);
+            this.weaponGroup.position.y = THREE.MathUtils.lerp(
+                this.weaponGroup.position.y, -0.4 + breatheAmount, deltaTime * 3);
+            
+            // Retorna à rotação neutra
+            this.weaponGroup.rotation.z = THREE.MathUtils.lerp(
+                this.weaponGroup.rotation.z, 0, deltaTime * 3);
+            this.weaponGroup.rotation.x = THREE.MathUtils.lerp(
+                this.weaponGroup.rotation.x, 0, deltaTime * 3);
+        }
+        
+        // Aplica efeito de recuo se tiver atirado recentemente
+        if (this.recoilAnimation) {
+            this.updateRecoilAnimation(deltaTime);
+        }
+    }
+    
+    /**
+     * Atualiza a animação de recuo da arma
+     * @param {number} deltaTime - Tempo desde o último frame
+     */
+    updateRecoilAnimation(deltaTime) {
+        if (!this.recoilAnimation) return;
+        
+        // Atualiza o timer da animação
+        this.recoilAnimation.time += deltaTime;
+        
+        if (this.recoilAnimation.time < this.recoilAnimation.duration) {
+            const progress = this.recoilAnimation.time / this.recoilAnimation.duration;
+            
+            // Fase inicial do recuo (recuo para trás)
+            if (progress < 0.3) {
+                const recuoPhase = progress / 0.3;
+                this.weaponGroup.position.z = -0.8 - this.recoilAnimation.amount * recuoPhase;
+                this.weaponGroup.position.y = -0.4 + this.recoilAnimation.amount * 0.5 * recuoPhase;
+            } 
+            // Fase de retorno (volta à posição)
+            else {
+                const returnPhase = (progress - 0.3) / 0.7;
+                this.weaponGroup.position.z = -0.8 - this.recoilAnimation.amount * (1 - returnPhase);
+                this.weaponGroup.position.y = -0.4 + this.recoilAnimation.amount * 0.5 * (1 - returnPhase);
+            }
+        } else {
+            // Finaliza a animação
+            this.weaponGroup.position.z = -0.8;
+            this.recoilAnimation = null;
         }
     }
 } 

@@ -207,26 +207,58 @@ export class Enemy {
     }
     
     /**
-     * Atualiza os projéteis do inimigo
+     * Atualiza os projéteis disparados por este inimigo
      * @param {number} deltaTime - Tempo desde o último frame
      */
     updateBullets(deltaTime) {
-        // Garantir que bullets existe
+        // Garante que this.bullets existe
         if (!this.bullets) {
             this.bullets = [];
             return;
         }
         
-        // Atualiza cada projétil
+        // Limita o número de projéteis por inimigo
+        if (this.bullets.length > 3) {
+            // Remove os mais antigos e recicla
+            const toRemove = this.bullets.length - 3;
+            for (let i = 0; i < toRemove; i++) {
+                const bullet = this.bullets[i];
+                if (bullet && bullet.addedToScene && this.scene) {
+                    bullet.removeFromScene(this.scene);
+                }
+                if (bullet && typeof Bullet.recycle === 'function') {
+                    Bullet.recycle(bullet);
+                }
+            }
+            this.bullets = this.bullets.slice(toRemove);
+        }
+        
+        // Atualiza posição e verifica colisões de cada projétil
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i];
+            
+            // Verifica se o projétil é válido
+            if (!bullet) {
+                this.bullets.splice(i, 1);
+                continue;
+            }
+            
+            // Atualiza a posição
             bullet.update(deltaTime);
             
-            // Verifica se o projétil deve ser removido
+            // Remove o projétil se atingiu a distância máxima ou colidiu
             if (bullet.hasCollided || bullet.distance > bullet.maxDistance) {
-                if (bullet.addedToScene && this.scene) {
-                    this.scene.remove(bullet.mesh);
+                // Remove da cena
+                if (this.scene && bullet.addedToScene) {
+                    bullet.removeFromScene(this.scene);
                 }
+                
+                // Recicla o projétil para o pool
+                if (typeof Bullet.recycle === 'function') {
+                    Bullet.recycle(bullet);
+                }
+                
+                // Remove da lista
                 this.bullets.splice(i, 1);
             }
         }
@@ -367,26 +399,139 @@ export class Enemy {
     }
     
     /**
-     * Realiza um ataque ao jogador
-     * @param {Object} player - Referência ao jogador
+     * Inimigo ataca o jogador
+     * @param {Object} player - Objeto do jogador
      */
     attack(player) {
         // Diferentes tipos de ataques baseados no tipo de inimigo
         switch (this.type) {
-            case 'basic':
-                // Inimigo básico: ataque corpo a corpo
-                if (this.position.distanceTo(player.position) < 3.0) {
-                    player.takeDamage(this.damage);
+            case 'boss':
+                // Ataque de projétil com mais frequência e dano
+                if (Math.random() < 0.1) { // 10% de chance a cada frame (reduzido para melhorar desempenho)
+                    // Limite de projéteis ativos para o chefe (para performance)
+                    if (!this.bullets || this.bullets.length < 4) {
+                        // Cria um projétil em direção ao jogador
+                        const direction = new THREE.Vector3()
+                            .subVectors(player.position, this.position)
+                            .normalize();
+                        
+                        // Adiciona um pouco de imprecisão
+                        direction.x += (Math.random() - 0.5) * 0.05;
+                        direction.y += (Math.random() - 0.5) * 0.05;
+                        direction.z += (Math.random() - 0.5) * 0.05;
+                        direction.normalize();
+                        
+                        // Posição inicial do projétil
+                        const bulletPosition = this.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+                        
+                        // Garantir que bullets existe
+                        if (!this.bullets) {
+                            this.bullets = [];
+                        }
+                        
+                        // Usa o sistema de pool para obter um projétil
+                        const bullet = Bullet.get(bulletPosition, direction, false);
+                        bullet.damage = this.damage;
+                        
+                        // Adiciona à lista de projéteis do inimigo
+                        this.bullets.push(bullet);
+                        
+                        // Adiciona à cena, se disponível
+                        if (this.scene) {
+                            bullet.addToScene(this.scene);
+                        }
+                    }
                 }
                 break;
                 
             case 'medium':
-            case 'heavy':
-                // Inimigos médio e pesado: ataque à distância (tiro)
-                const chanceToShoot = this.type === 'medium' ? 0.7 : 0.8; // Reduzido para melhorar desempenho
+                // Ataque de projétil ocasional
+                if (Math.random() < 0.03) { // 3% de chance a cada frame (reduzido para melhorar desempenho)
+                    // Limite de projéteis ativos para inimigos médios
+                    if (!this.bullets || this.bullets.length < 2) {
+                        // Cria um projétil em direção ao jogador
+                        const direction = new THREE.Vector3()
+                            .subVectors(player.position, this.position)
+                            .normalize();
+                        
+                        // Adiciona um pouco de imprecisão
+                        const accuracy = 0.1;
+                        direction.x += (Math.random() - 0.5) * accuracy;
+                        direction.y += (Math.random() - 0.5) * accuracy;
+                        direction.z += (Math.random() - 0.5) * accuracy;
+                        direction.normalize();
+                        
+                        // Posição inicial do projétil
+                        const bulletPosition = this.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+                        
+                        // Garantir que bullets existe
+                        if (!this.bullets) {
+                            this.bullets = [];
+                        }
+                        
+                        // Limita total de projéteis por inimigo para melhorar desempenho
+                        if (this.bullets.length < 2) {
+                            // Usa o sistema de pool para obter um projétil
+                            const bullet = Bullet.get(bulletPosition, direction, false);
+                            bullet.damage = this.damage;
+                            
+                            // Adiciona à lista de projéteis do inimigo
+                            this.bullets.push(bullet);
+                            
+                            // Adiciona à cena, se disponível
+                            if (this.scene) {
+                                bullet.addToScene(this.scene);
+                            }
+                        }
+                    }
+                }
+                break;
                 
-                if (Math.random() < chanceToShoot) {
-                    try {
+            case 'heavy':
+                // Ataque de projétil com mais dano, mas menos frequente
+                if (Math.random() < 0.02) { // 2% de chance a cada frame (reduzido para melhorar desempenho)
+                    // Limite de projéteis ativos para inimigos pesados
+                    if (!this.bullets || this.bullets.length < 2) {
+                        // Cria um projétil em direção ao jogador
+                        const direction = new THREE.Vector3()
+                            .subVectors(player.position, this.position)
+                            .normalize();
+                        
+                        // Adiciona um pouco de imprecisão
+                        const accuracy = 0.05;
+                        direction.x += (Math.random() - 0.5) * accuracy;
+                        direction.y += (Math.random() - 0.5) * accuracy;
+                        direction.z += (Math.random() - 0.5) * accuracy;
+                        direction.normalize();
+                        
+                        // Posição inicial do projétil
+                        const bulletPosition = this.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+                        
+                        // Garantir que bullets existe
+                        if (!this.bullets) {
+                            this.bullets = [];
+                        }
+                        
+                        // Usa o sistema de pool para obter um projétil
+                        const bullet = Bullet.get(bulletPosition, direction, false);
+                        bullet.damage = this.damage * 1.5; // Mais dano para inimigos pesados
+                        
+                        // Adiciona à lista de projéteis do inimigo
+                        this.bullets.push(bullet);
+                        
+                        // Adiciona à cena, se disponível
+                        if (this.scene) {
+                            bullet.addToScene(this.scene);
+                        }
+                    }
+                }
+                break;
+                
+            default: // basic
+                // Ataque de projétil básico
+                if (Math.random() < 0.05) { // 5% de chance a cada frame (reduzido para melhorar desempenho)
+                    // Limite básico de projéteis
+                    if (!this.bullets || this.bullets.length < 1) {
                         // Cria um projétil em direção ao jogador
                         const direction = new THREE.Vector3()
                             .subVectors(player.position, this.position)
@@ -402,21 +547,17 @@ export class Enemy {
                         // Posição inicial do projétil
                         const bulletPosition = this.position.clone().add(new THREE.Vector3(0, 1.5, 0));
                         
-                        // Cria o projétil
-                        const bullet = new Bullet(
-                            bulletPosition,
-                            direction,
-                            false // Não é um projétil do jogador
-                        );
-                        bullet.damage = this.damage;
-                        
                         // Garantir que bullets existe
                         if (!this.bullets) {
                             this.bullets = [];
                         }
                         
-                        // Limit total bullets per enemy for performance
-                        if (this.bullets.length < 3) {  // Limita o número de projéteis por inimigo
+                        // Limita total de projéteis por inimigo para melhorar desempenho
+                        if (this.bullets.length < 1) {
+                            // Usa o sistema de pool para obter um projétil
+                            const bullet = Bullet.get(bulletPosition, direction, false);
+                            bullet.damage = this.damage;
+                            
                             // Adiciona à lista de projéteis do inimigo
                             this.bullets.push(bullet);
                             
@@ -425,16 +566,8 @@ export class Enemy {
                                 bullet.addToScene(this.scene);
                             }
                         }
-                    } catch (error) {
-                        // Silenciar erros para não afetar desempenho
-                    }
-                } else {
-                    // Ataque corpo a corpo como fallback se estiver muito próximo
-                    if (this.position.distanceTo(player.position) < 3.0) {
-                        player.takeDamage(this.damage * 0.7);
                     }
                 }
-                break;
         }
     }
     

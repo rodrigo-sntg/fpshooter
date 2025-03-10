@@ -2,9 +2,193 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Starstrike: Operação Zero</title>
     <link rel="stylesheet" href="src/styles.css">
+    <style>
+        /* Estilos específicos para mobile */
+        @media (max-width: 767px) {
+            #hud {
+                font-size: 14px;
+            }
+            
+            #crosshair {
+                font-size: 24px;
+            }
+            
+            .screen {
+                padding: 20px;
+            }
+            
+            .screen h1 {
+                font-size: 24px;
+            }
+            
+            .screen h2 {
+                font-size: 20px;
+            }
+            
+            button {
+                padding: 12px 18px;
+                font-size: 14px;
+            }
+        }
+        
+        /* Prevenção de comportamentos indesejados em dispositivos móveis */
+        body {
+            touch-action: none;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        #multiplayerScreen {
+            background-color: rgba(0, 0, 0, 0.9);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Garante que fique acima do HUD e de outros elementos */
+        }
+        
+        .menu-container {
+            background-color: rgba(30, 30, 30, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 500px;
+            box-shadow: 0 0 20px rgba(0, 100, 255, 0.5);
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #fff;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid #444;
+            border-radius: 4px;
+        }
+        
+        #connection-status {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+        }
+        
+        .players-container {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            padding: 10px;
+        }
+        
+        .players-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .players-list li {
+            padding: 5px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .players-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .player-ping {
+            color: #0f0;
+        }
+        
+        .high-ping {
+            color: #f00;
+        }
+        
+        /* Estilos comuns para todas as telas de jogo */
+        .screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 900;
+            color: white;
+        }
+        
+        .screen.active {
+            display: flex;
+        }
+        
+        .screen h1 {
+            color: #00a2ff;
+            font-size: 36px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(0, 162, 255, 0.7);
+        }
+        
+        .screen h2 {
+            color: #00a2ff;
+            font-size: 28px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px rgba(0, 162, 255, 0.7);
+        }
+        
+        .screen button {
+            background-color: rgba(0, 100, 200, 0.7);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        .screen button:hover {
+            background-color: rgba(0, 150, 255, 0.9);
+        }
+        
+        /* Estilo específico para a tela de multiplayer para garantir que fique por cima */
+        #multiplayerScreen {
+            z-index: 1000;
+        }
+    </style>
 </head>
 <body>
     <!-- Container principal do jogo -->
@@ -46,14 +230,15 @@
         <!-- Telas do jogo (menu, pausa, game over) -->
         <div id="game-screens">
             <!-- Tela inicial -->
-            <div id="start-screen" class="screen active">
+            <div id="startScreen" class="screen active">
                 <h1>STARSTRIKE: OPERAÇÃO ZERO</h1>
                 <button id="start-button">INICIAR JOGO</button>
                 <button id="settings-button">CONFIGURAÇÕES</button>
+                <button id="multiplayer-button">MULTIPLAYER</button>
             </div>
             
             <!-- Tela de pausa -->
-            <div id="pause-screen" class="screen">
+            <div id="pauseScreen" class="screen">
                 <h2>JOGO PAUSADO</h2>
                 <button id="resume-button">CONTINUAR</button>
                 <button id="restart-button">REINICIAR</button>
@@ -61,11 +246,53 @@
             </div>
             
             <!-- Tela de game over -->
-            <div id="gameover-screen" class="screen">
+            <div id="gameoverScreen" class="screen">
                 <h2>MISSÃO FALHOU</h2>
                 <div id="final-score">Pontuação: <span id="final-score-value">0</span></div>
                 <button id="retry-button">TENTAR NOVAMENTE</button>
                 <button id="gameover-menu-button">MENU PRINCIPAL</button>
+            </div>
+            
+            <!-- Tela de tutorial para dispositivos móveis -->
+            <div id="mobileTutorialScreen" class="screen">
+                <h2>CONTROLES PARA DISPOSITIVO MÓVEL</h2>
+                <p>• Use o joystick esquerdo para movimentar o jogador</p>
+                <p>• Use o joystick direito para olhar ao redor</p>
+                <p>• Toque no botão vermelho para atirar</p>
+                <p>• Toque no botão verde para recarregar</p>
+                <button id="mobile-tutorial-ok">ENTENDI</button>
+            </div>
+        </div>
+        
+        <!-- Menu Multiplayer -->
+        <div id="multiplayerScreen" class="screen">
+            <div class="menu-container">
+                <h2>Modo Multiplayer</h2>
+                
+                <div class="form-group">
+                    <label for="server-url">Endereço do Servidor:</label>
+                    <input type="text" id="server-url" value="ws://localhost:8080" placeholder="ws://endereço:porta">
+                </div>
+                
+                <div class="form-group">
+                    <label for="player-name">Nome do Jogador:</label>
+                    <input type="text" id="player-name" placeholder="Digite seu nome">
+                </div>
+                
+                <div class="button-container">
+                    <button id="connect-button" class="menu-button">Conectar</button>
+                    <button id="disconnect-button" class="menu-button" disabled>Desconectar</button>
+                    <button id="back-from-multiplayer-button" class="menu-button">Voltar</button>
+                </div>
+                
+                <div id="connection-status">Status: Desconectado</div>
+                
+                <div id="players-list" class="players-container">
+                    <h3>Jogadores Conectados</h3>
+                    <ul class="players-list">
+                        <!-- Lista de jogadores será preenchida dinamicamente -->
+                    </ul>
+                </div>
             </div>
         </div>
     </div>

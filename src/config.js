@@ -102,7 +102,7 @@ export const ITEM = {
 export const GAME = {
     FPS_TARGET: 60,         // FPS alvo (para cálculos baseados em tempo)
     FOV: 75,                // Campo de visão da câmera
-    NEAR_PLANE: 0.1,        // Plano próximo da câmera
+    NEAR_PLANE: 0.01,       // Plano próximo da câmera (ajustado para evitar clipping da arma)
     FAR_PLANE: 1000,        // Plano distante da câmera
     GRAVITY: 9.8,           // Gravidade do mundo
     AMBIENT_LIGHT: 0.5,     // Intensidade da luz ambiente (0-1)
@@ -117,4 +117,31 @@ export const AUDIO = {
     DISTANCE_MODEL: 'linear', // Modelo de atenuação de distância
     MAX_DISTANCE: 50,       // Distância máxima para ouvir um som
     REF_DISTANCE: 1         // Distância de referência para atenuação
+};
+
+// Adicionar seção de configurações de rede/multiplayer
+export const NETWORK = {
+    // URL padrão do servidor WebSocket
+    DEFAULT_SERVER: 'ws://localhost:8080',
+    
+    // Taxa de atualização de rede (atualizações por segundo)
+    UPDATE_RATE: 10,
+    
+    // Tempo máximo de ping (ms) antes de considerar conexão ruim
+    MAX_PING: 150,
+    
+    // Limite de jogadores por sala/partida
+    MAX_PLAYERS: 8,
+    
+    // Configurações de interpolação
+    INTERPOLATION: {
+        // Fator de interpolação (0-1)
+        FACTOR: 0.2,
+        
+        // Atraso de interpolação (ms)
+        DELAY: 100
+    },
+    
+    // Limite de mensagens por segundo
+    RATE_LIMIT: 30
 }; 

@@ -5,187 +5,241 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js';
 import { WEAPON } from './config.js';
 
+// Objetos compartilhados para reduzir alocações de memória
+const SHARED = {
+    // Geometrias compartilhadas (reduz alocações de memória)
+    geometries: {
+        playerBullet: new THREE.SphereGeometry(0.1, 6, 6), // Reduzido de 8,8 para 6,6 segmentos
+        enemyBullet: new THREE.SphereGeometry(0.15, 6, 6)
+    },
+    
+    // Materiais compartilhados
+    materials: {
+        playerBullet: new THREE.MeshBasicMaterial({ color: 0xffff00 }),
+        enemyBullet: new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    },
+    
+    // Vetores temporários para cálculos (reutilizados)
+    tempVector: new THREE.Vector3(),
+    tempDirection: new THREE.Vector3(),
+    
+    // Pool para reutilização de objetos
+    pool: [],
+    maxPoolSize: 100, // Aumentado para 100 para reutilizar mais objetos
+    
+    // Contadores para estatísticas de desempenho
+    stats: {
+        created: 0,
+        recycled: 0,
+        reused: 0
+    }
+};
+
 export class Bullet {
     /**
-     * Cria um novo projétil
+     * Obtém uma instância de projétil, do pool ou nova
      * @param {THREE.Vector3} position - Posição inicial do projétil
-     * @param {THREE.Vector3} direction - Direção de movimento do projétil (normalizada)
-     * @param {boolean} isPlayerBullet - Indica se o projétil é do jogador (true) ou de um inimigo (false)
+     * @param {THREE.Vector3} direction - Direção de movimento (normalizada)
+     * @param {boolean} isPlayerBullet - Se o projétil é do jogador (true) ou inimigo (false)
+     * @returns {Bullet} - Instância de projétil
+     */
+    static get(position, direction, isPlayerBullet) {
+        // Tenta obter do pool
+        if (SHARED.pool.length > 0) {
+            const bullet = SHARED.pool.pop();
+            bullet.reset(position, direction, isPlayerBullet);
+            SHARED.stats.reused++;
+            return bullet;
+        }
+        
+        // Cria nova instância se não tem no pool
+        SHARED.stats.created++;
+        return new Bullet(position, direction, isPlayerBullet);
+    }
+    
+    /**
+     * Devolve o projétil ao pool para reutilização
+     * @param {Bullet} bullet - Projétil a ser reciclado
+     */
+    static recycle(bullet) {
+        // Limpa referências e reseta estado
+        bullet.hasCollided = true;
+        bullet.addedToScene = false;
+        
+        // Limita o tamanho do pool
+        if (SHARED.pool.length < SHARED.maxPoolSize) {
+            SHARED.pool.push(bullet);
+            SHARED.stats.recycled++;
+        }
+    }
+    
+    /**
+     * Cria um novo projétil
+     * @param {THREE.Vector3} position - Posição inicial
+     * @param {THREE.Vector3} direction - Direção de movimento
+     * @param {boolean} isPlayerBullet - Se é projétil do jogador
      */
     constructor(position, direction, isPlayerBullet = true) {
         // Propriedades básicas
-        this.position = position;
-        this.direction = direction.normalize();
+        this.position = position.clone();
+        this.direction = direction.clone().normalize();
         this.isPlayerBullet = isPlayerBullet;
-        this.speed = isPlayerBullet ? WEAPON.BULLET_SPEED * 2 : WEAPON.BULLET_SPEED * 1.5; // Velocidade adequada
-        this.distance = 0; // Distância percorrida
+        this.speed = isPlayerBullet ? WEAPON.BULLET_SPEED * 2 : WEAPON.BULLET_SPEED * 1.5;
+        this.distance = 0;
         this.hasCollided = false;
-        this.addedToScene = false; // Flag para rastrear se foi adicionado à cena
-        this.maxDistance = isPlayerBullet ? WEAPON.RANGE * 2 : WEAPON.RANGE * 1.5; // Alcance adequado
+        this.addedToScene = false;
+        this.maxDistance = isPlayerBullet ? WEAPON.RANGE * 2 : WEAPON.RANGE * 1.5;
+        this.damage = isPlayerBullet ? WEAPON.DAMAGE : 10;
         
-        // Propriedades relacionadas ao dano
-        this.damage = isPlayerBullet ? WEAPON.DAMAGE : 10; // Dano padrão para balas de inimigos
+        // Usar geometrias e materiais compartilhados (reduz uso de memória)
+        const geometry = isPlayerBullet ? SHARED.geometries.playerBullet : SHARED.geometries.enemyBullet;
+        const material = isPlayerBullet ? SHARED.materials.playerBullet : SHARED.materials.enemyBullet;
         
-        // Criar a geometria e material da bala
-        // Tamanho maior para projéteis inimigos para torná-los mais visíveis
-        const bulletSize = isPlayerBullet ? 0.1 : 0.15;
-        const geometry = new THREE.SphereGeometry(bulletSize, 8, 8);
-        
-        // Cores diferentes: amarelo para jogador, vermelho para inimigos
-        const bulletColor = isPlayerBullet ? 0xffff00 : 0xff0000;
-        const material = new THREE.MeshBasicMaterial({
-            color: bulletColor,
-            // MeshBasicMaterial não suporta emissive, usando apenas cor brilhante
-        });
-        
-        // Criar o mesh
+        // Criar o mesh do projétil
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.position.copy(position);
         
-        // Raycaster para detecção de colisão
-        this.raycaster = new THREE.Raycaster(position, direction, 0, 0.2);
+        // Campos otimizados
+        this._boundingBox = new THREE.Box3();
+        this._boundingBoxNeedsUpdate = true;
         
-        // Bounding box para colisão
-        this.boundingBox = new THREE.Box3().setFromObject(this.mesh);
+        // NOTA: Removida a criação de luzes dinâmicas para melhorar desempenho
     }
     
     /**
-     * Atualiza a posição e estado do projétil
-     * @param {number} deltaTime - Tempo desde o último frame em segundos
+     * Reseta o projétil para reutilização
+     * @param {THREE.Vector3} position - Nova posição
+     * @param {THREE.Vector3} direction - Nova direção
+     * @param {boolean} isPlayerBullet - Se é projétil do jogador
+     */
+    reset(position, direction, isPlayerBullet) {
+        // Reseta estado
+        this.position.copy(position);
+        this.direction.copy(direction).normalize();
+        this.isPlayerBullet = isPlayerBullet;
+        this.distance = 0;
+        this.hasCollided = false;
+        this.addedToScene = false;
+        this._boundingBoxNeedsUpdate = true;
+        
+        // Configura propriedades baseadas no tipo
+        this.speed = isPlayerBullet ? WEAPON.BULLET_SPEED * 2 : WEAPON.BULLET_SPEED * 1.5;
+        this.maxDistance = isPlayerBullet ? WEAPON.RANGE * 2 : WEAPON.RANGE * 1.5;
+        this.damage = isPlayerBullet ? WEAPON.DAMAGE : 10;
+        
+        // Atualiza a geometria e material se necessário
+        if (isPlayerBullet) {
+            this.mesh.geometry = SHARED.geometries.playerBullet;
+            this.mesh.material = SHARED.materials.playerBullet;
+        } else {
+            this.mesh.geometry = SHARED.geometries.enemyBullet;
+            this.mesh.material = SHARED.materials.enemyBullet;
+        }
+        
+        // Atualiza posição do mesh
+        this.mesh.position.copy(position);
+    }
+    
+    /**
+     * Obtém a bounding box para colisão
+     */
+    get boundingBox() {
+        if (this._boundingBoxNeedsUpdate) {
+            this._boundingBox.setFromObject(this.mesh);
+            this._boundingBoxNeedsUpdate = false;
+        }
+        return this._boundingBox;
+    }
+    
+    /**
+     * Atualiza o projétil
+     * @param {number} deltaTime - Tempo desde o último frame
      */
     update(deltaTime) {
-        // Se já colidiu, não atualiza
         if (this.hasCollided) return;
         
-        // Calcula o movimento neste frame - usa valor fixo para evitar problemas com deltaTime muito pequeno
+        // Movimento mais eficiente, reduzindo alocações
         const moveDistance = this.speed * Math.max(deltaTime, 0.01);
         this.distance += moveDistance;
         
-        // Atualiza a posição
-        this.position.x += this.direction.x * moveDistance;
-        this.position.y += this.direction.y * moveDistance;
-        this.position.z += this.direction.z * moveDistance;
+        // Atualiza posição, evitando criar novos vetores
+        SHARED.tempDirection.copy(this.direction).multiplyScalar(moveDistance);
+        this.position.add(SHARED.tempDirection);
         
-        // Atualiza a posição do mesh
+        // Atualiza posição do mesh
         this.mesh.position.copy(this.position);
         
-        // Atualiza o raycaster para detectar colisões no próximo frame
-        this.raycaster.set(this.position, this.direction);
+        // Bounding box precisa ser atualizada
+        this._boundingBoxNeedsUpdate = true;
         
-        // Atualiza a bounding box
-        this.boundingBox.setFromObject(this.mesh);
+        // Verifica se alcançou a distância máxima
+        if (this.distance > this.maxDistance) {
+            this.hasCollided = true;
+        }
     }
     
     /**
-     * Verifica colisão com um objeto
-     * @param {Object} object - Objeto a verificar colisão (deve ter boundingBox)
-     * @returns {boolean} - Verdadeiro se houve colisão
+     * Verifica colisão com outro objeto
+     * @param {Object} object - Objeto para verificar colisão
+     * @returns {boolean} - Verdadeiro se colidiu
      */
     checkCollision(object) {
-        // Verifica se o objeto tem uma bounding box
-        if (!object.boundingBox) return false;
-        
-        // Se já colidiu, não verifica novamente
         if (this.hasCollided) return false;
         
-        // Atualiza a bounding box do projétil
-        this.boundingBox.setFromObject(this.mesh);
-        
-        // Verifica se as bounding boxes se intersectam
-        const intersects = this.boundingBox.intersectsBox(object.boundingBox);
-        
-        // Aumenta o raio de colisão para sentinelas para facilitar acertos
-        let collision = intersects;
-        if (!intersects && object.isSentinel && this.isPlayerBullet) {
-            // Calcula a distância entre o projétil e o sentinela
-            const distance = this.mesh.position.distanceTo(object.position);
+        // Verificação rápida de distância antes de calcular bounding box
+        if (object.position) {
+            const distanceSq = this.position.distanceToSquared(object.position);
             
-            // Se estiver dentro de um raio maior (1.5x), considera como acerto
-            if (distance < 1.5) {
-                collision = true;
+            // Aumentando o raio de colisão para melhorar detecção
+            // Usando 16 (4²) para inimigos normais ou 25 (5²) para sentinelas
+            const collisionRadiusSq = object.type === 'basic' ? 25 : 16;
+            
+            // Otimização: usa distância ao quadrado para evitar cálculo de raiz quadrada
+            if (distanceSq <= collisionRadiusSq) {
+                console.log(`Colisão por distância detectada: ${Math.sqrt(distanceSq).toFixed(2)} unidades`);
+                this.hasCollided = true;
+                return true;
             }
         }
         
-        // Se houve colisão, processa os efeitos
-        if (collision) {
-            this.onCollision();
+        // Verifica colisão de bounding boxes como backup
+        if (!this.hasCollided && object.boundingBox) {
+            const collision = this.boundingBox.intersectsBox(object.boundingBox);
+            if (collision) {
+                this.hasCollided = true;
+                return true;
+            }
         }
         
-        return collision;
-    }
-    
-    /**
-     * Verifica colisão com raycasting
-     * @param {Array} objects - Array de objetos para verificar colisão
-     * @param {number} maxDistance - Distância máxima para verificar colisão
-     * @returns {Object|null} - Objeto de interseção ou null se não houver colisão
-     */
-    checkRayCollision(objects, maxDistance) {
-        // Atualiza as propriedades do raycaster
-        this.raycaster.far = maxDistance || 0.1;
-        
-        // Verifica interseções
-        const intersects = this.raycaster.intersectObjects(objects, true);
-        
-        // Se houver interseção, colide
-        if (intersects.length > 0) {
-            this.onCollision();
-            return intersects[0];
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Manipulador de evento de colisão
-     */
-    onCollision() {
-        // Marca o projétil como colidido
-        this.hasCollided = true;
-        
-        // Aqui podemos adicionar efeitos visuais, sons, etc.
-        this.createImpactEffect();
-    }
-    
-    /**
-     * Cria um efeito visual de impacto
-     */
-    createImpactEffect() {
-        // Placeholder para futura implementação de efeitos de partículas ou visuais
-        // Por enquanto, apenas muda a cor do projétil para indicar colisão
-        if (this.mesh.material) {
-            this.mesh.material.color.set(0xffffff);
-            this.mesh.material.opacity = 0.5;
-            this.mesh.material.transparent = true;
-            
-            // Faz o projétil expandir e desaparecer
-            this.mesh.scale.set(2, 2, 2);
-        }
+        return false;
     }
     
     /**
      * Adiciona o projétil à cena
-     * @param {THREE.Scene} scene - Cena onde o projétil será adicionado
+     * @param {THREE.Scene} scene - Cena onde adicionar
      */
     addToScene(scene) {
-        scene.add(this.mesh);
-        this.addedToScene = true;
+        if (!this.addedToScene) {
+            scene.add(this.mesh);
+            this.addedToScene = true;
+        }
     }
     
     /**
      * Remove o projétil da cena
-     * @param {THREE.Scene} scene - Cena de onde o projétil será removido
+     * @param {THREE.Scene} scene - Cena de onde remover
      */
     removeFromScene(scene) {
-        scene.remove(this.mesh);
-        
-        // Libera recursos
-        if (this.mesh.geometry) {
-            this.mesh.geometry.dispose();
+        if (this.addedToScene) {
+            scene.remove(this.mesh);
+            this.addedToScene = false;
         }
-        
-        if (this.mesh.material) {
-            this.mesh.material.dispose();
-        }
+    }
+    
+    /**
+     * Marca o projétil como colidido e cria efeito
+     */
+    onCollision() {
+        this.hasCollided = true;
     }
 } 
